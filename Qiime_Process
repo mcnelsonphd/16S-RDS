@@ -1,0 +1,404 @@
+#!/bin/sh
+
+# Qiime_Process.sh
+# 
+# Script for QIIME processing 16S V4 amplicon data. 
+# This script will take a users demultiplexed input sequences and sample mapping file and proceed through the entire QIIME analysis pipeline, including standard alpha and beta diversity analyses.
+# A time-stamped log file of all steps that are conducted is created, which also displays the input files and their MD5 checksums.
+# The script utilizes a checkpointing feature to prevent it from proceeding to a subsequent step if a proceeding step has failed.
+# This minimizes the number of error messages sent to the terminal window and hopefully makes it easier for users to troubleshoot when something fails.
+# It must be noted that the paths to the Greengenes reference files are hardcoded, and thus the script must be modified when used on different computers.
+# Additionally, the script is currently written to utilize MacQIIME version 1.8. Previous and/or future versions of QIIME are not guaranteed to work with this script.
+#
+# Created by Michael C. Nelson on 2012-08-01.
+# Last revised: 2014-05-08
+# Revision #: 13
+# Copyright 2014 Michael C. Nelson and the University of Connecticut. All rights reserved.
+# 
+# This script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+
+clear
+# Initialize timestamp variables
+DATE=`date +%Y-%m-%d`
+TIME=`date +%H:%M:%S`
+TM=`date +%Y%m%d-%H%M`
+LOG=Qiime_log_$TM.txt
+#Create log file
+echo "Started executing Qiime_Process on $DATE at $TIME " | tee $LOG
+#echo "" | tee -a $LOG
+
+# Initiail sanity checking for script operation
+# Are the correct number of arguments given?
+if [ "$1" = "" ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Qiime_Process seqs.fna Map.txt' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Qiime_Process split_libs/seqs.fna ../My_Mapping_File.txt' | tee -a $LOGs
+    echo '' | tee -a $LOG
+    exit 1
+fi
+
+# Can the required input files be found?
+if [ ! -f $1 ] || [ ! -f $2 ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
+    echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Qiime_Process seqs.fna Map.txt' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Qiime_Process split_libs/seqs.fna ../My_Mapping_File.txt' | tee -a $LOG
+    echo '' | tee -a $LOG
+    exit 1
+else
+    INSEQS=$1
+    MD5SEQS=`md5 $1`
+    MAPLOC=$2
+    MD5MAP=`md5 $2`
+    echo '' | tee -a $LOG
+    echo "Using $INSEQS as the input sequence file." | tee -a $LOG
+    echo $MD5SEQS | tee -a $LOG
+    echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
+    echo $MD5MAP| tee -a $LOG
+fi
+
+# Set up working environment
+source /macqiime/configs/bash_profile.txt
+GGREF=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_otus_v4.fasta
+GGREFALN=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_otus_v4_aligned.fasta
+GGTAX=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_tax.txt
+CPU=4
+START=`date +%s`
+echo ''
+
+### Step 1: Perform reference based OTU picking with uclust_ref
+if [ ! -f step1.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+    echo '' | tee -a $LOG
+	echo "Step 1: $DATE $TIME" | tee -a $LOG
+	echo "Clustering the split_libraries_fastq.py output ($1) to reference the Greengenes reference OTUs (97_otus_v4.fasta) using parallel_pick_otus_usearch61_ref.py. Output is in the ref_otus folder." | tee -a $LOG
+	parallel_pick_otus_usearch61_ref.py -i $INSEQS -o ref_otus/ -r $GGREF -O $CPU && touch step1.complete
+	find ./ref_otus/ -name '*_clusters.uc' -exec rm -f {} \;
+fi
+if [ ! -f step1.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured trying to perform reference OTU clustering.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+
+### Step 2: Run de novo clustering on sequences that failed to cluster to a reference.
+if [ -f ref_otus/seqs_failures.txt ] && [ ! -f step2.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+    echo '' | tee -a $LOG
+	echo "Step 2: $DATE $TIME" | tee -a $LOG
+	echo 'Finding reads that failed to be assigned to a reference OTU. Output is in ref_failures folder.' | tee -a $LOG
+	mkdir ref_failures
+	filter_fasta.py -f $INSEQS -o ref_failures/ref_fail_seqs.fasta -s ref_otus/seqs_failures.txt
+	echo 'Performing de novo OTU clustering using the failed reads with uclust_ref. Output is ref_fail_seqs_otus.txt in ref_failures folder.' | tee -a $LOG
+	pick_otus.py -i ref_failures/ref_fail_seqs.fasta -o ref_failures/ -m usearch61 && touch step2.complete
+fi
+if [ ! -f step2.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured trying to perform de novo OTU clustering.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 3: Create aligned set of reference sequences for tree building.
+if [ -f ref_failures/ref_fail_seqs_otus.txt ] && [ ! -f step3.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	## Create the aligned reference seqs file for the reference clustered OTUs
+	echo '' | tee -a $LOG
+	echo "Step 3: $DATE $TIME" | tee -a $LOG
+	echo 'Finding reference OTU representative sequences, output is ref_otus_Rep_Set_aligned.fasta' | tee -a $LOG
+	pick_rep_set.py -i ref_otus/seqs_otus.txt -r $GGREFALN -o ref_otus_Rep_Set_aligned.fasta
+	## Create the aligned reference seqs file for the de novo OTUs
+	echo '' | tee -a $LOG
+	echo "$DATE $TIME" | tee -a $LOG
+	echo 'Picking and aligning the new OTU reference sequences. Output is ref_fail_seqs_Rep_Set_aligned.fasta in ref_failures folder.' | tee -a $LOG
+	pick_rep_set.py -i ref_failures/ref_fail_seqs_otus.txt -f ref_failures/ref_fail_seqs.fasta -o ref_failures/ref_fail_seqs_Rep_Set.fasta
+	parallel_align_seqs_pynast.py -i ref_failures/ref_fail_seqs_Rep_Set.fasta -t $GGREFALN -o ref_failures/ -e 75 -O $CPU && touch step3.complete
+fi
+if [ ! -f step3.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured trying to align the ref_fail_seqs_Rep_Set.fasta file.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 4: Perform chimera checking with ChimeraSlayer on the aligned ref_fail_seqs_Rep_Set
+if [ -f ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta ] && [ ! -f step4.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 4: $DATE $TIME" | tee -a $LOG
+	echo 'Checking the ref_fail_seqs_Rep_Set for chimeras with ChimeraSlayer' | tee -a $LOG
+	parallel_identify_chimeric_seqs.py -i ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta -a $GGREFALN -O $CPU && touch step4.complete
+fi
+if [ ! -f step4.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while performing chimera checking of the de novo OTU representative sequences.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 5: Create unified OTU mapping file, complete set of aligned and unaligned representative sequences, and single file noting OTUs to exclude from OTU table.
+if [ -f ref_fail_seqs_Rep_Set_aligned_chimeric.txt ]  && [ ! -f step5.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 5: $DATE $TIME" | tee -a $LOG
+	echo 'Creating a single aligned reference set file. Output is Rep_Set.fasta.' | tee -a $LOG
+	## Cat the two *_Rep_aligned.fasta files into Rep_set.fasta in base folder
+	cat ref_otus_Rep_Set_aligned.fasta ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta >Rep_Set_aligned.fasta
+	echo 'Creating a unified otus.txt file for use in creating OTU table. Output is otus_complete.txt.' | tee -a $LOG
+	## Cat the two *_otus.txt files into complete_otus.txt in base folder
+	find ./ -name '*_otus.txt' -exec cat {} ';' >otus_complete.txt
+	## Create un-aligned Rep Set for classifier
+	tr -d '-' <Rep_Set_aligned.fasta>Rep_Set.fasta
+	## Create file denoting OTUs to exclude from the OTU table
+	grep '>' ref_failures/ref_fail_seqs_Rep_Set_failures.fasta | tr -d '>' | cut -d\  -f 1,1 >filter_unaligned.txt
+	cat filter_unaligned.txt ref_fail_seqs_Rep_Set_aligned_chimeric.txt > bad_OTUs.txt && touch step5.complete
+fi
+if [ ! -f step5.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while creating unified files of the reference and de novo OTU processes.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 6: Assign taxonomy to representative sequences.
+if [ -f Rep_Set.fasta ] && [ ! -f step6.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 6: $DATE $TIME" | tee -a $LOG
+	echo 'Assigning taxonomy to representative sequences with RDP Classifier. Output is Rep_Set_tax_assignments.txt' | tee -a $LOG
+	parallel_assign_taxonomy_rdp.py -i Rep_Set.fasta -o RDP_classifier/ -t $GGTAX -r $GGREF -O $CPU
+	## Clean up the taxonomy file
+	sed 's/;p__;c__;o__;f__;g__	/	/g' RDP_classifier/Rep_Set_tax_assignments.txt | sed 's/;c__;o__;f__;g__	/	/g' | sed 's/;o__;f__;g__	/	/g' | sed 's/;f__;g__	/	/g' | sed 's/;g__	/	/g'  > RDP_classifier/Rep_Set_clean_taxonomy.txt && touch step6.complete
+	rm -r jobs/ ## Done with all parallel operations so remove useless folder
+fi
+if [ ! -f step6.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while performing taxonomy assignments with the re-trained RDP Classifier.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 7: Creating phylogenetic tree for use in calculating alpha and beta diversity metrics.
+if [ -f ref_fail_seqs_Rep_Set_aligned_chimeric.txt ]  && [ ! -f step7.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 7: $DATE $TIME" | tee -a $LOG
+	echo 'Filtering Rep_Set_algined.fasta to remove common gaps. Output is Rep_Set_aligned_pfiltered.fasta.' | tee -a $LOG
+	filter_alignment.py -i Rep_Set_aligned.fasta -s
+	echo 'Creating a phylogenetic tree using the Rep_Set_aligned.fasta file. Output is Rep_Set_tree.tree.' | tee -a $LOG
+	make_phylogeny.py -i Rep_Set_aligned_pfiltered.fasta -o Rep_Set_tree.tree && touch step7.complete
+fi
+if [ ! -f step7.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while creating the phylogenetic tree for the Rep_Set_aligned.fasta file.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 8: Create OTU tables.
+if [ -f otus_complete.txt ]  && [ ! -f step8.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 8: $DATE $TIME" | tee -a $LOG
+	echo 'Creating OTU tables from the otus_complete.txt file. Output is otu_table.biom (biom format) and otu_table.txt (text format).' | tee -a $LOG
+	make_otu_table.py -i otus_complete.txt -o raw_otu_table.biom -t RDP_classifier/Rep_Set_clean_taxonomy.txt -e bad_OTUs.txt
+	filter_otus_from_otu_table.py -i raw_otu_table.biom -o tmp1.biom -n 3
+	filter_otus_from_otu_table.py -i tmp1.biom -o otu_table.biom --min_count_fraction 0.00005
+    biom summarize-table -i otu_table.biom -o otu_table_stats.txt
+    #print_biom_table_summary.py -i otu_table.biom -o otu_table_stats.txt
+    biom convert -i otu_table.biom -o otu_table.txt -b --header-key taxonomy && touch step8.complete
+    #convert_biom.py -i otu_table.biom -o otu_table.txt -b --header_key taxonomy && touch step8.complete
+fi
+if [ ! -f step8.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while creating the OTU tables.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 9: Summarize taxa.
+if [ -f otu_table.biom ]  && [ ! -f step9.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 9: $DATE $TIME" | tee -a $LOG
+	echo 'Summarizing taxa distribution at all taxonomic levels. Output is in taxa_summary folder.'
+	summarize_taxa.py -i otu_table.biom -o taxa_summary/
+	summarize_taxa.py -i otu_table.biom -o taxa_summary/abs/ -a && touch step9.complete
+fi
+if [ ! -f step9.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while creating the taxonomy summaries.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 10: Calculate alpha diversity metrics.
+if [ -f otu_table.biom ]  && [ ! -f step10.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 10: $DATE $TIME" | tee -a $LOG
+	echo "Calculating the alpha diversity metrics Observed, Singletons, Doubletons, Simpson (D), Shannon (H'), and phylogenetic distance (PD)." | tee -a $LOG
+	echo "Output is alpha_raw.txt for the unfiltered OTU table and alpha_div.txt for the filtered OTU table." | tee -a $LOG
+	alpha_diversity.py -i raw_otu_table.biom -o alpha_raw.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree
+	alpha_diversity.py -i otu_table.biom -o alpha_div.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step10.complete
+fi
+if [ ! -f step10.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while calculating alpha diversity metrics.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo ''
+	echo ''
+	exit 1
+fi
+
+### Step 11: Perform rarefaction of OTU table to allow for proper beta diversity comparisons
+if [ -f otu_table.biom ]  && [ ! -f step11.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 11: $DATE $TIME" | tee -a $LOG
+	DEPTH=`grep 'Min:' otu_table_stats.txt | sed 's/ Min: //' | sed 's/\.0//'`
+	echo "Rarefying the filtered OTU table (otu_table.biom) to the smallest sample using the sampling depth: $DEPTH" | tee -a $LOG
+	single_rarefaction.py -i otu_table.biom -o even_table.biom -d $DEPTH
+    biom summarize-table -i even_table.biom -o even_table_stats.txt
+    #print_biom_table_summary.py -i even_table.biom -o even_table_stats.txt
+
+	alpha_diversity.py -i even_table.biom -o alpha_even.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step11.complete
+fi
+if [ ! -f step11.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while rarefying the OTU table.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	exit 1
+fi
+
+### Step 12: Perform standard beta diversity calculations and create 3D PCoA plots
+if [ -f even_table.biom ]  && [ ! -f step12.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo "Step 12: $DATE $TIME" | tee -a $LOG
+	echo 'Computing beta diversity statistics for the following metrics: Bray Curtis, Ochiai, weighted and unweighted UniFrac' | tee -a $LOG
+	beta_diversity.py -i even_table.biom -o beta_div/ -m binary_ochiai,bray_curtis,weighted_unifrac,unweighted_unifrac -t Rep_Set_tree.tree
+	principal_coordinates.py -i beta_div/weighted_unifrac_even_table.txt -o beta_div/weighted_unifrac_PCoA.txt
+	principal_coordinates.py -i beta_div/unweighted_unifrac_even_table.txt -o beta_div/unweighted_unifrac_PCoA.txt
+	principal_coordinates.py -i beta_div/bray_curtis_even_table.txt -o beta_div/bray_curtis_PCoA.txt
+	principal_coordinates.py -i beta_div/binary_ochiai_even_table.txt -o beta_div/ochiai_PCoA.txt 
+	echo '' | tee -a $LOG
+	echo "$DATE $TIME" | tee -a $LOG
+	echo 'Making 3D PCoA plots, output is in the beta_div/3D_plots directory' | tee -a $LOG
+	make_3d_plots.py -i beta_div/weighted_unifrac_PCoA.txt -o beta_div/weighted_unifrac/ -m $MAPLOC
+	make_3d_plots.py -i beta_div/unweighted_unifrac_PCoA.txt -o beta_div/unweighted_unifrac/ -m $MAPLOC 
+	make_3d_plots.py -i beta_div/bray_curtis_PCoA.txt -o beta_div/Bray-Curtis/ -m $MAPLOC 
+	make_3d_plots.py -i beta_div/ochiai_PCoA.txt -o beta_div/Ochiai/ -m $MAPLOC
+	mkdir beta_div/3D_plots
+	find ./ -name '*.kin' -exec mv {} beta_div/3D_plots/ ';'
+	rm -r beta_div/Bray-Curtis/ beta_div/Ochiai/ beta_div/unweighted_unifrac/ beta_div/weighted_unifrac/ && touch step12.complete
+fi
+if [ ! -f step12.complete ]; then
+    DATE=`date +%Y-%m-%d`
+    TIME=`date +%H:%M:%S`
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while performing beta diversity analyses.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	exit 1
+fi
+
+echo '' | tee -a $LOG
+echo 'Qiime analysis completed successfully' | tee -a $LOG
+END=`date +%s`
+RUNTIME=$(( END - START ))
+echo "This job took $RUNTIME seconds to complete" | tee -a $LOG
+
