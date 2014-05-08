@@ -103,14 +103,14 @@ fi
 
 
 ### Step 2: Run de novo clustering on sequences that failed to cluster to a reference.
-if [ -f ref_otus/seqs_failures.txt ] && [ ! -f step2.complete ]; then
+if [ -f ref_otus/$INSEQS_failures.txt ] && [ ! -f step2.complete ]; then
     DATE=`date +%Y-%m-%d`
     TIME=`date +%H:%M:%S`
     echo '' | tee -a $LOG
 	echo "Step 2: $DATE $TIME" | tee -a $LOG
 	echo 'Finding reads that failed to be assigned to a reference OTU. Output is in ref_failures folder.' | tee -a $LOG
 	mkdir ref_failures
-	filter_fasta.py -f $INSEQS -o ref_failures/ref_fail_seqs.fasta -s ref_otus/seqs_failures.txt
+	filter_fasta.py -f $INSEQS -o ref_failures/ref_fail_seqs.fasta -s ref_otus/$INSEQS_failures.txt
 	echo 'Performing de novo OTU clustering using the failed reads with uclust_ref. Output is ref_fail_seqs_otus.txt in ref_failures folder.' | tee -a $LOG
 	pick_otus.py -i ref_failures/ref_fail_seqs.fasta -o ref_failures/ -m usearch61 && touch step2.complete
 fi
