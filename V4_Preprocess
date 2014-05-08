@@ -1,19 +1,32 @@
 #!/bin/sh
 
-# V4_Pre-Process.sh
+# V4_Preprocess
 # 
 #
 # Created by Michael C. Nelson on 2013-06-01.
-# Revised 2013-11-05 
-# Copyright 2013 University of Connecticut. All rights reserved.
-
+# Last revised: 2014-05-08
+# Revision #: 3
+# Copyright 2014 Michael C. Nelson and the University of Connecticut.
+# 
+# This script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+#
 # Goal:
 # User calls the script in the directory containing the Undetermined read and index files.
 # The script will then series of steps to correctly merge the paired reads, remove phiX contamination, and filter reads on length.
 # After script complete, the final read and index files will be in the primary directory while intermediate output files will be in the intermediates sub-directory.
 # Checkpointing is performed to allow the script to be re-run from the last safely completed step in case of script failure.
 
-# Useage: V4_Pre-Process
+# Useage: V4_Preprocess
 clear
 echo ''
 echo ''
@@ -23,7 +36,7 @@ TIME=`date +%H:%M:%S`
 TM=`date +%Y%m%d-%H%M%S`
 LOG=V4_Pre-Process_Log_$TM.txt
 # Create log file
-echo "Executing V4_Pre-Process.sh on $DATE at $TIME " | tee $LOG
+echo "Executing V4_Preprocess.sh on $DATE at $TIME " | tee $LOG
 
 
 # Prior to beginning, are the require input files in the current dir?
