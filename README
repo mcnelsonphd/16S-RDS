@@ -1,0 +1,7 @@
+This is the official project home for the scripts necessary to carry out the various pre-processing and analysis steps that are recommended and implemented in the RDS processing scheme published by Nelson et al. PLoS ONE 9: e94249. doi:10.1371/journal.pone.0094249.
+
+The primary scripts are V4-Preprocess, Qiime_Analysis, and Reanalyze_16S.
+
+V4_Preprocess is the first step of the analysis pipeline. It takes the three raw Undetermined files from the MiSeq and proceeds with read-merging using SeqPrep, phiX identification via bowtie2 and removal, and length filtering of reads that fall outside the expected size range for V4 amplicons (< 240, > 265 bp) using a custom biopython script. The final results of this step are a Good_Reads_filtered.fastq.gz and Good_Index_filtered.fastq.gz file. Intermediate files are placed in a V4_Intermediates directory. The script operates on a checkpointing scheme and will attempt to restart after the last successfully completed step in case of failure.
+
+Qiime_Analysis is the second step of the 
