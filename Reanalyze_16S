@@ -1,0 +1,145 @@
+#!/bin/sh
+
+# Reanalyze_16S
+# 
+# Script for redoing alpha and beta diversity analyses to a different sampling depth than the one used by the automatic analysis script. 
+# This script takes as input a users specified OTU table, sample mapping file, phylogenetic tree, and new sampling depth and redoes the standard alpha and beta diversity analyses.
+# A time-stamped log file of all steps that are conducted is created, which also displays the input files and their MD5 checksums.
+# The script utilizes a checkpointing feature to prevent it from proceeding to a subsequent step if a proceeding step has failed.
+# This minimizes the number of error messages sent to the terminal window and hopefully makes it easier for users to troubleshoot when something fails.
+# It must be noted that the script is currently written to utilize QIIME version 1.8. 
+# Previous and/or future versions of QIIME are not guaranteed to work with this script.
+#
+# Created by Michael C. Nelson on 2014-01-16.
+# Last revised: 2014-05-08
+# Revision #: 3
+# Copyright 2014 Michael C. Nelson and the University of Connecticut.
+# 
+# This script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+
+clear
+# Initialize timestamp variables
+DATE=`date +%Y-%m-%d`
+TIME=`date +%H:%M:%S`
+TM=`date +%Y%m%d-%H%M`
+LOG=Reanalysis_log_$TM.txt
+#Create log file
+echo "Executing Reanalysis on $DATE at $TIME " | tee $LOG
+#echo "" | tee -a $LOG
+
+# Initial sanity checking for script operation
+# Are the correct number of arguments given?
+if [ "$1" = "" ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt Rep_tree.tree 2000' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt initial_processing/Rep_tree.tree 2000' | tee -a $LOGs
+    echo '' | tee -a $LOG
+    exit 1
+fi
+
+# Can the required input files be found?
+if [ ! -f $1 ] || [ ! -f $2 ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
+    echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt 2000' | tee -a $LOG
+    echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt 2000' | tee -a $LOGs
+    echo '' | tee -a $LOG
+    exit 1
+else
+    TABLE=$1
+    MD5TABLE=`md5 $1`
+    MAPLOC=$2
+    MD5MAP=`md5 $2`
+	TREE=$3
+	MD5TREE=`md5 $3`
+    DEPTH=$4
+	echo '' | tee -a $LOG
+    echo "Using $TABLE as the input otu table." | tee -a $LOG
+    echo $MD5TABLE | tee -a $LOG
+    echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
+    echo $MD5MAP | tee -a $LOG
+    echo "Using $TREE as the input tree file." | tee -a $LOG
+    echo $TREE | tee -a $LOG
+	echo "New rarefaction depth is $DEPTH. All new files/folders will state this sample depth."
+fi
+
+# Set up working environment
+source /macqiime/configs/bash_profile.txt
+DIR=Reanalysis_$TM_$DEPTH
+mkdir $DIR
+CPU=4
+START=`date +%s`
+echo ''
+
+### Step 1: Perform new rarefaction of OTU table to new sample depth
+if [ ! -f Redo1.complete ]; then
+	echo '' | tee -a $LOG
+	echo "Step 1: $DATE $TIME" | tee -a $LOG
+	echo "Re-rarefying your OTU table ($TABLE) to the new sampling depth: $DEPTH" | tee -a $LOG
+	single_rarefaction.py -i $TABLE -o $DIR/even_table_$DEPTH.biom -d $DEPTH
+	biom summarize-table -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt
+	#print_biom_table_summary.py -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt
+	alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE && touch Redo1.complete
+fi
+if [ ! -f Redo1.complete ]; then
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while rarefying the OTU table.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	exit 1
+fi
+
+### Step 2: Perform standard beta diversity calculations and create 3D PCoA plots
+if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo2.complete ]; then
+	echo '' | tee -a $LOG
+	echo "Step 2: $DATE $TIME" | tee -a $LOG
+	echo 'Computing new beta diversity statistics for the following metrics: Bray Curtis, Ochiai, weighted and unweighted UniFrac' | tee -a $LOG
+	beta_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/beta_div/ -m binary_ochiai,bray_curtis,weighted_unifrac,unweighted_unifrac -t $TREE
+	principal_coordinates.py -i $DIR/beta_div/weighted_unifrac_even_table_$DEPTH.txt -o $DIR/beta_div/weighted_unifrac_PCoA.txt
+	principal_coordinates.py -i $DIR/beta_div/unweighted_unifrac_even_table_$DEPTH.txt -o $DIR/beta_div/unweighted_unifrac_PCoA.txt
+	principal_coordinates.py -i $DIR/beta_div/bray_curtis_even_table_$DEPTH.txt -o $DIR/beta_div/bray_curtis_PCoA.txt
+	principal_coordinates.py -i $DIR/beta_div/binary_ochiai_even_table_$DEPTH.txt -o $DIR/beta_div/ochiai_PCoA.txt 
+	echo '' | tee -a $LOG
+	echo "$DATE $TIME" | tee -a $LOG
+	echo 'Making 3D PCoA plots, output is in the $DIR/beta_div/3D_plots directory' | tee -a $LOG
+	make_3d_plots.py -i $DIR/beta_div/weighted_unifrac_PCoA.txt -o $DIR/beta_div/weighted_unifrac/ -m $MAPLOC
+	make_3d_plots.py -i $DIR/beta_div/unweighted_unifrac_PCoA.txt -o $DIR/beta_div/unweighted_unifrac/ -m $MAPLOC 
+	make_3d_plots.py -i $DIR/beta_div/bray_curtis_PCoA.txt -o $DIR/beta_div/Bray-Curtis/ -m $MAPLOC 
+	make_3d_plots.py -i $DIR/beta_div/ochiai_PCoA.txt -o $DIR/beta_div/Ochiai/ -m $MAPLOC
+	mkdir $DIR/beta_div/3D_plots
+	find $DIR/ -name '*.kin' -exec mv {} $DIR/beta_div/3D_plots/ ';'
+	rm -r $DIR/beta_div/Bray-Curtis/ $DIR/beta_div/Ochiai/ $DIR/beta_div/unweighted_unifrac/ $DIR/beta_div/weighted_unifrac/ && touch Redo2.complete
+fi
+if [ ! -f Redo2.complete ]; then
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while performing beta diversity analyses.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	exit 1
+else
+	rm Redo1.complete Redo2.complete
+	echo '' | tee -a $LOG
+	END=`date +%s`
+	RUNTIME=$(( END - START ))
+	echo "This job took $RUNTIME seconds to complete" | tee -a $LOG
+fi
+
+
