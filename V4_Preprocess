@@ -1,0 +1,154 @@
+#!/bin/sh
+
+# V4_Pre-Process.sh
+# 
+#
+# Created by Michael C. Nelson on 2013-06-01.
+# Revised 2013-11-05 
+# Copyright 2013 University of Connecticut. All rights reserved.
+
+# Goal:
+# User calls the script in the directory containing the Undetermined read and index files.
+# The script will then series of steps to correctly merge the paired reads, remove phiX contamination, and filter reads on length.
+# After script complete, the final read and index files will be in the primary directory while intermediate output files will be in the intermediates sub-directory.
+# Checkpointing is performed to allow the script to be re-run from the last safely completed step in case of script failure.
+
+# Useage: V4_Pre-Process
+clear
+echo ''
+echo ''
+# Initialize timestamp variables
+DATE=`date +%Y-%m-%d`
+TIME=`date +%H:%M:%S`
+TM=`date +%Y%m%d-%H%M%S`
+LOG=V4_Pre-Process_Log_$TM.txt
+# Create log file
+echo "Executing V4_Pre-Process.sh on $DATE at $TIME " | tee $LOG
+
+
+# Prior to beginning, are the require input files in the current dir?
+if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] && [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
+    echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed form.' | tee -a $LOG 
+    echo '' | tee -a $LOG
+    exit 1
+fi
+
+# Check to see if script has successfully executed already
+if [ -f Pre-Processing.complete ]; then
+    echo '' | tee -a $LOG
+    echo 'Script appears to have already executed correctly.' | tee -a $LOG
+    exit 0
+fi
+
+if [ -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ]; then
+    gunzip *.gz
+fi
+
+# Merge Read 1 and Read 2
+if [ ! -f Merged_Reads.fastq.gz ] && [ -f Undetermined_S0_L001_R1_001.fastq ] && [ -f Undetermined_S0_L001_R2_001.fastq ]; then
+    echo '' | tee -a $LOG
+    date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Step 1: Merging the paired reads into single contigs" | tee -a $LOG
+    echo ''
+    SeqPrep -f Undetermined_S0_L001_R1_001.fastq -r Undetermined_S0_L001_R2_001.fastq -1 t1 -2 t2 -L 240 -q 15 -y z -s Merged_Reads.fastq.gz
+    gunzip Merged_reads.fastq.gz
+    touch Merging.complete
+fi 
+
+# Cleanup 1
+if [ -f Merged_Reads.fastq ] && [ -f Merging.complete ]; then
+    echo '' | tee -a $LOG
+    rm t1 t2
+    gzip *R*_001.fastq
+else
+    if [ ! -f phiX_removal.complete ]; then
+        echo 'Read merging failed.' | tee -a $LOG
+        exit 1
+    fi
+fi
+
+# Use bowtie2 to map reads to phiX reference
+if [ ! -f phiX.sam ] && [ -f Merged_Reads.fastq ] && [ ! -f phiX_removal.complete ]; then
+    date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Step 2: Identifying phiX contamination." | tee -a $LOG
+    echo ''
+    bowtie2 -x /Volumes/DATA_RAID/Reference_Files/phiX/phix -U Merged_reads.fastq -S phiX.sam -p 4
+fi
+
+# Process phiX.sam output to get unmapped reads
+if [ -f phiX.sam ] && [ ! -f phiX_removal.complete ]; then
+    echo ''
+    samtools view -f4 -S phiX.sam | cut -f 1,1 >good.txt
+else
+    if [ ! -f phiX_removal.complete ]; then
+        echo 'Identification of phiX reads failed using bowtie.' | tee -a $LOG
+        exit 1
+    fi
+fi
+
+# Filter bad reads out of input file and index file
+if [ -f good.txt ]; then
+    echo '' | tee -a $LOG
+    date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Step 3: Filtering phiX contamination from merged reads and index reads." | tee -a $LOG
+    source /macqiime/configs/bash_profile.txt
+    filter_fasta.py -f Merged_reads.fastq -o Good_Reads.fastq -s good.txt
+    touch phiX_removal.complete
+fi
+
+# Cleanup 2
+if [ -f Good_Reads.fastq ] && [ -f phiX_removal.complete ]; then
+    rm phiX.sam
+    rm good.txt
+    gzip Merged_reads.fastq
+else
+    echo 'Read filtering failed.' | tee -a $LOG
+    exit 1
+fi
+
+# Perform length filtering with standard V4 cutoff
+if [ -f Good_Reads.fastq ] && [ ! -f Good_Reads_filtered.fastq ]; then
+    echo '' | tee -a $LOG
+    date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Step 4: Filtering reads with min length 245bp and max length 260bp." | tee -a $LOG
+    Length_Filter.py Good_Reads.fastq Good_Reads_filtered.fastq 245 260
+    if [ -f Good_Reads_filtered.fastq ]; then
+        touch Length_filtering.complete
+    fi
+fi
+
+# Filter Index file to only contain reads in Good_Reads_filtered.fastq
+if [ -f Good_Reads_filtered.fastq ] && [ ! -f Good_Index_filtered.fastq ]; then
+    echo '' | tee -a $LOG
+    date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Step 5: Filtering Index fastq files to remove sequences not found in Good_Reads_filtered.fastq." | tee -a $LOG 
+    echo '' | tee -a $LOG
+    grep '@M00704' Good_Reads_filtered.fastq |tr -d '@' |cut -d\  -f1 >keep.txt
+    source /macqiime/configs/bash_profile.txt
+    filter_fasta.py -f Undetermined_S0_L001_I1_001.fastq -o Good_Index_filtered.fastq -s keep.txt
+    echo "Displaying number of reads in original and filtered files." | tee -a $LOG
+    printf "No. reads in initial index file:  "; grep -c '@M00704' Undetermined_S0_L001_I1_001.fastq | tee -a $LOG
+    printf "No. reads in Good_Reads_filtered: "; grep -c '@M00704' Good_Reads_filtered.fastq | tee -a $LOG
+    printf "No. reads in Good_Index_filtered: "; grep -c '@M00704' Good_Index_filtered.fastq | tee -a $LOG
+else
+    echo 'Length filtering failed' | tee -a $LOG
+    exit 1
+fi
+
+if [ -f Good_Reads_filtered.fastq ] && [ -f Good_Index_filtered.fastq ]; then
+    rm *.complete keep.txt
+    gzip *.fastq
+    mkdir V4_intermediates
+    mv Good_Reads.fastq.gz Merged_reads.fastq.gz V4_intermediates/
+    echo '' | tee -a $LOG
+    date +%y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "Pre-processing phase completed successfully!" | tee -a $LOG
+    touch Pre-Processing.complete
+    echo ''
+    echo ''
+else
+    echo 'Failed to harmonize Index and Read files' | tee -a $LOG
+fi
+
