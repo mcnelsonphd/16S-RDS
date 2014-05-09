@@ -55,8 +55,20 @@ if [ -f Pre-Processing.complete ]; then
     exit 0
 fi
 
-if [ -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ]; then
-    gunzip *.gz
+# Check to see if GNU parallel is installed.
+if [ ! type parallel 2>/dev/null ]; then
+	$SMP='TRUE'
+else
+	$SMP='FALSE'
+fi
+	
+# Unzip all of the read files, technically not needed but still doing out of historical usage.
+if [ -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ] && $SMP; then
+	echo 'Running in single-process mode'
+	gunzip *.gz
+else
+	echo 'Running in multi-process mode'
+	parallel gunzip ::: *.gz
 fi
 
 # Merge Read 1 and Read 2
