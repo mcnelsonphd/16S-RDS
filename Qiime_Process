@@ -219,7 +219,11 @@ if [ -f Rep_Set.fasta ] && [ ! -f step6.complete ]; then
 	echo 'Assigning taxonomy to representative sequences with RDP Classifier. Output is Rep_Set_tax_assignments.txt' | tee -a $LOG
 	parallel_assign_taxonomy_rdp.py -i Rep_Set.fasta -o RDP_classifier/ -t $GGTAX -r $GGREF -O $CPU
 	## Clean up the taxonomy file
+	## NOTE: This step is only necessary to prevent cases of duplicate taxa appearing in the taxonomy summaries.
+	## NOTE: Tab characters are used in the sed commands, not spaces.
+	## NOTE: If the reference taxonomy file goes to the species level then comment the next line and un-comment the following line.
 	sed 's/;p__;c__;o__;f__;g__	/	/g' RDP_classifier/Rep_Set_tax_assignments.txt | sed 's/;c__;o__;f__;g__	/	/g' | sed 's/;o__;f__;g__	/	/g' | sed 's/;f__;g__	/	/g' | sed 's/;g__	/	/g'  > RDP_classifier/Rep_Set_clean_taxonomy.txt && touch step6.complete
+	#sed 's/;p__;c__;o__;f__;g__;s__	/	/g' RDP_classifier/Rep_Set_tax_assignments.txt | sed 's/;c__;o__;f__;g__;s__	/	/g' | sed 's/;o__;f__;g__;s__	/	/g' | sed 's/;f__;g__;s__	/	/g' | sed 's/;g__;s__	/	/g' | sed 's/;s__	/	/g' > RDP_classifier/Rep_Set_clean_taxonomy.txt && touch step6.complete
 	rm -r jobs/ ## Done with all parallel operations so remove useless folder
 fi
 if [ ! -f step6.complete ]; then
@@ -270,8 +274,9 @@ if [ -f otus_complete.txt ]  && [ ! -f step8.complete ]; then
 	filter_otus_from_otu_table.py -i raw_otu_table.biom -o tmp1.biom -n 3
 	filter_otus_from_otu_table.py -i tmp1.biom -o otu_table.biom --min_count_fraction 0.00005
     biom summarize-table -i otu_table.biom -o otu_table_stats.txt
-    #print_biom_table_summary.py -i otu_table.biom -o otu_table_stats.txt
     biom convert -i otu_table.biom -o otu_table.txt -b --header-key taxonomy && touch step8.complete
+	## QIIME 1.7 code, deprecated in QIIME 1.8
+    #print_biom_table_summary.py -i otu_table.biom -o otu_table_stats.txt
     #convert_biom.py -i otu_table.biom -o otu_table.txt -b --header_key taxonomy && touch step8.complete
 fi
 if [ ! -f step8.complete ]; then
@@ -344,6 +349,7 @@ if [ -f otu_table.biom ]  && [ ! -f step11.complete ]; then
 	echo "Rarefying the filtered OTU table (otu_table.biom) to the smallest sample using the sampling depth: $DEPTH" | tee -a $LOG
 	single_rarefaction.py -i otu_table.biom -o even_table.biom -d $DEPTH
     biom summarize-table -i even_table.biom -o even_table_stats.txt
+	## QIIME 1.7 code, deprecated in QIIME 1.8
     #print_biom_table_summary.py -i even_table.biom -o even_table_stats.txt
 
 	alpha_diversity.py -i even_table.biom -o alpha_even.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step11.complete
