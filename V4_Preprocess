@@ -162,7 +162,7 @@ else
     fi
 fi
 
-# Filter bad reads out of input file and index file
+# Filter bad reads out of input file
 if [ -f good.txt ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
@@ -183,32 +183,36 @@ else
     exit 1
 fi
 
+# Define the time-stamped final output files
+GOODREADS=Good_Reads_filtered_$TM.fastq
+GOODINDEX=Good_Index_filtered_$TM.fastq
+
 # Perform length filtering with standard V4 cutoff values
 if [ -s Good_Reads.fastq ] && [ ! -s Good_Reads_filtered.fastq ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 4: Filtering reads with min length 245bp and max length 260bp." | tee -a $LOG
-    Length_Filter.py Good_Reads.fastq Good_Reads_filtered.fastq 245 260
+    Length_Filter.py Good_Reads.fastq $GOODREADS 245 260
     if [ -s Good_Reads_filtered.fastq ]; then
         touch Length_filtering.complete
     fi
 fi
 
-# Filter Index file to only contain reads in Good_Reads_filtered.fastq
-if [ -s Good_Reads_filtered.fastq ] && [ ! -s Good_Index_filtered.fastq ]; then
+# Filter Index file to only contain reads in Good_Reads_filtered file
+if [ -s $GOODREADS ] && [ ! -s $GOODINDEX ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 5: Filtering Index fastq files to remove sequences not found in Good_Reads_filtered.fastq." | tee -a $LOG 
     echo '' | tee -a $LOG
-    grep '@M00704' Good_Reads_filtered.fastq |tr -d '@' |cut -d\  -f1 >keep.txt
+    grep '@M00704' $GOODREADS |tr -d '@' |cut -d\  -f1 >keep.txt
     source /macqiime/configs/bash_profile.txt
-    filter_fasta.py -f Undetermined_S0_L001_I1_001.fastq -o Good_Index_filtered.fastq -s keep.txt
+    filter_fasta.py -f Undetermined_S0_L001_I1_001.fastq -o $GOODINDEX -s keep.txt
     echo "Displaying number of reads in original and filtered files." | tee -a $LOG
     COUNT=`grep -c '@M00704' Undetermined_S0_L001_I1_001.fastq`
     echo "No. reads in initial index file: $COUNT " | tee -a $LOG
-    COUNT=`grep -c '@M00704' Good_Reads_filtered.fastq`
+    COUNT=`grep -c '@M00704' $GOODREADS`
     echo "No. reads in Good_Reads_filtered: $COUNT "  | tee -a $LOG
-    COUNT=`grep -c '@M00704' Good_Index_filtered.fastq`
+    COUNT=`grep -c '@M00704' $GOODINDEX`
     echo "No. reads in Good_Index_filtered: $COUNT "| tee -a $LOG
 else
     echo 'Length filtering failed' | tee -a $LOG
@@ -216,11 +220,11 @@ else
     exit 1
 fi
 
-if [ -s Good_Reads_filtered.fastq ] && [ -s Good_Index_filtered.fastq ]; then
+if [ -s $GOODREADS ] && [ -s $GOODINDEX ]; then
     rm *.complete keep.txt
     compress
-    mkdir V4_intermediates
-    mv Good_Reads.fastq.gz Merged_reads.fastq.gz V4_intermediates/
+    mkdir V4_intermediates_$TM
+    mv Good_Reads.fastq.gz Merged_reads.fastq.gz V4_intermediates_$TM/
     echo '' | tee -a $LOG
     MD5R1N=`md5 Undetermined_S0_L001_R1_001.fastq.gz`
     MD5R2N=`md5 Undetermined_S0_L001_R2_001.fastq.gz`
