@@ -4,8 +4,8 @@
 # 
 #
 # Created by Michael C. Nelson on 2013-06-01.
-# Last revised: 2014-05-08
-# Revision #: 3
+# Last revised: 2014-10-07
+# Revision #: 4
 # Copyright 2014 Michael C. Nelson and the University of Connecticut.
 # 
 # This script is free software: you can redistribute it and/or modify
@@ -23,8 +23,28 @@
 # Goal:
 # User calls the script in the directory containing the Undetermined read and index files.
 # The script will then series of steps to correctly merge the paired reads, remove phiX contamination, and filter reads on length.
-# After script complete, the final read and index files will be in the primary directory while intermediate output files will be in the intermediates sub-directory.
+# After script completion, the final read and index files will be in the primary directory while intermediate output files will be in the intermediates sub-directory.
 # Checkpointing is performed to allow the script to be re-run from the last safely completed step in case of script failure.
+# File tracing is accomplished by calculating md5 checksum values for all input and final output files (see note).
+
+## NOTE:
+# There is a difference in the compression used between MiSeqReporter and gzip as implemented on OSX (and posisbly linux although not tested).
+# This means that the initial md5 checksum values calculated from the original Undetermined files from the MiSeq will not be equal after processing
+# them with this script, even though the original files are not directly modified asides from uncompressing and then re-compressing with gzip.
+# My only current solution to enable accurate tracking it to calculate the md5 values of the original compressed files, as well as the uncompressed
+# versions. The uncompressed md5 values should always be identical regardless of the compression method.
+#
+
+# Create a subroutine for compression of all fastq files for use on exit
+# Could probably modify to enable usage
+compress(){
+    if $SMP; then
+        gzip *.fastq
+    else
+parallel gunzip ::: *.fastq
+    fi
+
+}
 
 # Useage: V4_Preprocess
 clear
@@ -38,64 +58,91 @@ LOG=V4_Pre-Process_Log_$TM.txt
 # Create log file
 echo "Executing V4_Preprocess.sh on $DATE at $TIME " | tee $LOG
 
-
-# Prior to beginning, are the require input files in the current dir?
-if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] && [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
-    echo '' | tee -a $LOG
-    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
-    echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed form.' | tee -a $LOG 
-    echo '' | tee -a $LOG
-    exit 1
-fi
-
 # Check to see if script has successfully executed already
 if [ -f Pre-Processing.complete ]; then
     echo '' | tee -a $LOG
-    echo 'Script appears to have already executed correctly.' | tee -a $LOG
+    echo 'The script appears to have already executed correctly.' | tee -a $LOG
+    echo 'If you wish to re-run the preprocessing again please delete the Pre-Processing.complete file.' | tee -a $LOG
+    echo '' | tee -a $LOG
     exit 0
 fi
 
 # Check to see if GNU parallel is installed.
 if [ ! type parallel 2>/dev/null ]; then
-	$SMP='TRUE'
+    SMP=
+    echo '' | tee -a $LOG
+    echo 'Running in single-process mode' | tee -a $LOG
 else
-	$SMP='FALSE'
+    SMP=TRUE
+    echo '' | tee -a $LOG
+    echo 'Running in multi-process mode' | tee -a $LOG
 fi
-	
-# Unzip all of the read files, technically not needed but still doing out of historical usage.
-if [ -f Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ] && $SMP; then
-	echo 'Running in single-process mode'
-	gunzip *.gz
+
+# Prior to beginning, are the require input files in the current dir?
+if [ ! -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -s Undetermined_S0_L001_R2_001.fastq.gz ] && [ ! -s Undetermined_S0_L001_I1_001.fastq.gz ]; then
+    echo '' | tee -a $LOG
+    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
+    echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed form.' | tee -a $LOG 
+    echo '' | tee -a $LOG
+    exit 1
+else # Files we need are present so write MD5 checksums of the input files to log and screen for source tracking
+    MD5R1=`md5 Undetermined_S0_L001_R1_001.fastq.gz`
+    MD5R2=`md5 Undetermined_S0_L001_R2_001.fastq.gz`
+    MD5INDEX=`md5 Undetermined_S0_L001_I1_001.fastq.gz`
+    echo '' | tee -a $LOG
+    echo "Using the following files as input:" | tee -a $LOG
+    echo $MD5R1 | tee -a $LOG
+    echo $MD5R2 | tee -a $LOG
+    echo $MD5INDEX | tee -a $LOG
+fi
+
+# Unzip all of the Undetermined files. Technically not necessary to do to all, but still doing out of historical usage.
+if [ -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ] && $SMP; then
+	gunzip Undetermined*.gz
+    MD5R1FQ=`md5 Undetermined_S0_L001_R1_001.fastq`
+    MD5R2FQ=`md5 Undetermined_S0_L001_R2_001.fastq`
+    MD5INDEXFQ=`md5 Undetermined_S0_L001_I1_001.fastq`
+    echo '' | tee -a $LOG
+    echo "The md5 values of the uncompressed files are as follows:" | tee -a $LOG
+    echo $MD5R1FQ | tee -a $LOG
+    echo $MD5R2FQ | tee -a $LOG
+    echo $MD5INDEXFQ | tee -a $LOG
 else
-	echo 'Running in multi-process mode'
-	parallel gunzip ::: *.gz
+    parallel gunzip ::: Undetermined_S0_L001_R1_001.fastq.gz Undetermined_S0_L001_R2_001.fastq.gz Undetermined_S0_L001_I1_001.fastq.gz
 fi
 
 # Merge Read 1 and Read 2
-if [ ! -f Merged_Reads.fastq.gz ] && [ -f Undetermined_S0_L001_R1_001.fastq ] && [ -f Undetermined_S0_L001_R2_001.fastq ]; then
+if [ ! -s Merged_Reads.fastq.gz ] && [ -s Undetermined_S0_L001_R1_001.fastq ] && [ -s Undetermined_S0_L001_R2_001.fastq ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 1: Merging the paired reads into single contigs" | tee -a $LOG
     echo ''
     SeqPrep -f Undetermined_S0_L001_R1_001.fastq -r Undetermined_S0_L001_R2_001.fastq -1 t1 -2 t2 -L 240 -q 15 -y z -s Merged_Reads.fastq.gz
+    echo '' | tee -a $LOG
+    echo "Merging operation completed:" | tee -a $LOG
     gunzip Merged_reads.fastq.gz
     touch Merging.complete
-fi 
+fi
 
 # Cleanup 1
-if [ -f Merged_Reads.fastq ] && [ -f Merging.complete ]; then
+if [ -s Merged_Reads.fastq ] && [ -f Merging.complete ]; then
     echo '' | tee -a $LOG
     rm t1 t2
-    gzip *R*_001.fastq
+    if $SMP; then
+        gzip *R*_001.fastq
+    else
+        parallel gunzip ::: *R*_001.fastq
+    fi
 else
     if [ ! -f phiX_removal.complete ]; then
         echo 'Read merging failed.' | tee -a $LOG
+        compress
         exit 1
     fi
 fi
 
-# Use bowtie2 to map reads to phiX reference
-if [ ! -f phiX.sam ] && [ -f Merged_Reads.fastq ] && [ ! -f phiX_removal.complete ]; then
+# Use bowtie2 to map reads to phiX reference, using 4 processors
+if [ ! -s phiX.sam ] && [ -s Merged_Reads.fastq ] && [ ! -f phiX_removal.complete ]; then
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 2: Identifying phiX contamination." | tee -a $LOG
     echo ''
@@ -103,12 +150,14 @@ if [ ! -f phiX.sam ] && [ -f Merged_Reads.fastq ] && [ ! -f phiX_removal.complet
 fi
 
 # Process phiX.sam output to get unmapped reads
-if [ -f phiX.sam ] && [ ! -f phiX_removal.complete ]; then
+if [ -s phiX.sam ] && [ ! -f phiX_removal.complete ]; then
     echo ''
     samtools view -f4 -S phiX.sam | cut -f 1,1 >good.txt
 else
     if [ ! -f phiX_removal.complete ]; then
+        echo '' | tee -a $LOG
         echo 'Identification of phiX reads failed using bowtie.' | tee -a $LOG
+        compress
         exit 1
     fi
 fi
@@ -124,28 +173,29 @@ if [ -f good.txt ]; then
 fi
 
 # Cleanup 2
-if [ -f Good_Reads.fastq ] && [ -f phiX_removal.complete ]; then
+if [ -s Good_Reads.fastq ] && [ -f phiX_removal.complete ]; then
     rm phiX.sam
     rm good.txt
     gzip Merged_reads.fastq
 else
     echo 'Read filtering failed.' | tee -a $LOG
+    compress
     exit 1
 fi
 
-# Perform length filtering with standard V4 cutoff
-if [ -f Good_Reads.fastq ] && [ ! -f Good_Reads_filtered.fastq ]; then
+# Perform length filtering with standard V4 cutoff values
+if [ -s Good_Reads.fastq ] && [ ! -s Good_Reads_filtered.fastq ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 4: Filtering reads with min length 245bp and max length 260bp." | tee -a $LOG
     Length_Filter.py Good_Reads.fastq Good_Reads_filtered.fastq 245 260
-    if [ -f Good_Reads_filtered.fastq ]; then
+    if [ -s Good_Reads_filtered.fastq ]; then
         touch Length_filtering.complete
     fi
 fi
 
 # Filter Index file to only contain reads in Good_Reads_filtered.fastq
-if [ -f Good_Reads_filtered.fastq ] && [ ! -f Good_Index_filtered.fastq ]; then
+if [ -s Good_Reads_filtered.fastq ] && [ ! -s Good_Index_filtered.fastq ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 5: Filtering Index fastq files to remove sequences not found in Good_Reads_filtered.fastq." | tee -a $LOG 
@@ -154,26 +204,40 @@ if [ -f Good_Reads_filtered.fastq ] && [ ! -f Good_Index_filtered.fastq ]; then
     source /macqiime/configs/bash_profile.txt
     filter_fasta.py -f Undetermined_S0_L001_I1_001.fastq -o Good_Index_filtered.fastq -s keep.txt
     echo "Displaying number of reads in original and filtered files." | tee -a $LOG
-    printf "No. reads in initial index file:  "; grep -c '@M00704' Undetermined_S0_L001_I1_001.fastq | tee -a $LOG
-    printf "No. reads in Good_Reads_filtered: "; grep -c '@M00704' Good_Reads_filtered.fastq | tee -a $LOG
-    printf "No. reads in Good_Index_filtered: "; grep -c '@M00704' Good_Index_filtered.fastq | tee -a $LOG
+    COUNT=`grep -c '@M00704' Undetermined_S0_L001_I1_001.fastq`
+    echo "No. reads in initial index file: $COUNT " | tee -a $LOG
+    COUNT=`grep -c '@M00704' Good_Reads_filtered.fastq`
+    echo "No. reads in Good_Reads_filtered: $COUNT "  | tee -a $LOG
+    COUNT=`grep -c '@M00704' Good_Index_filtered.fastq`
+    echo "No. reads in Good_Index_filtered: $COUNT "| tee -a $LOG
 else
     echo 'Length filtering failed' | tee -a $LOG
+    compress
     exit 1
 fi
 
-if [ -f Good_Reads_filtered.fastq ] && [ -f Good_Index_filtered.fastq ]; then
+if [ -s Good_Reads_filtered.fastq ] && [ -s Good_Index_filtered.fastq ]; then
     rm *.complete keep.txt
-    gzip *.fastq
+    compress
     mkdir V4_intermediates
     mv Good_Reads.fastq.gz Merged_reads.fastq.gz V4_intermediates/
+    echo '' | tee -a $LOG
+    MD5R1N=`md5 Undetermined_S0_L001_R1_001.fastq.gz`
+    MD5R2N=`md5 Undetermined_S0_L001_R2_001.fastq.gz`
+    MD5INDEXN=`md5 Undetermined_S0_L001_I1_001.fastq.gz`
+    date +%y-%m-%d_%H:%M:%S | tee -a $LOG
+    echo "The md5 values of the Undetermined files are now:" | tee -a $LOG
+    echo $MD5R1N | tee -a $LOG
+    echo $MD5R2N | tee -a $LOG
+    echo $MD5INDEXN | tee -a $LOG
     echo '' | tee -a $LOG
     date +%y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Pre-processing phase completed successfully!" | tee -a $LOG
     touch Pre-Processing.complete
-    echo ''
+    echo '' | tee -a $LOG
     echo ''
 else
     echo 'Failed to harmonize Index and Read files' | tee -a $LOG
+    compress
 fi
 
