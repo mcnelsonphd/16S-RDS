@@ -39,7 +39,9 @@
 # Could probably modify to enable usage in more places
 compress(){
     if $SMP; then
-        parallel gunzip ::: *.fastq
+        parallel gzip ::: *.fastq
+    elif $PIGGY; then
+        pigz -p 4 *.fastq
     else
         gzip *.fastq
     fi
@@ -77,14 +79,15 @@ else
     echo 'Running in multi-process mode' | tee -a $LOG
 fi
 
-# Prior to beginning, are the require input files in the current dir?
+# Prior to beginning, are the require input files in the current dir? If not throw an error, if yes then proceed with checksum calculation and decompression steps.
 if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
     echo '' | tee -a $LOG
     echo 'ERROR: Required input files could not be found.' | tee -a $LOG
-    echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed form.' | tee -a $LOG 
+    echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed (*.fastq.gz) form.' | tee -a $LOG
     echo '' | tee -a $LOG
+    compress
     exit 1
-else # Files we need are present so write MD5 checksums of the input files to log and screen for source tracking
+elif [ -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ -s Undetermined_S0_L001_R2_001.fastq.gz ] && [ -s Undetermined_S0_L001_I1_001.fastq.gz ]; then
     MD5R1=`md5 Undetermined_S0_L001_R1_001.fastq.gz`
     MD5R2=`md5 Undetermined_S0_L001_R2_001.fastq.gz`
     MD5INDEX=`md5 Undetermined_S0_L001_I1_001.fastq.gz`
@@ -93,11 +96,11 @@ else # Files we need are present so write MD5 checksums of the input files to lo
     echo $MD5R1 | tee -a $LOG
     echo $MD5R2 | tee -a $LOG
     echo $MD5INDEX | tee -a $LOG
-fi
-
-# Unzip all of the Undetermined files. Technically not necessary to do to all, but still doing out of historical usage.
-if [ -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ] && $SMP; then
-	gunzip Undetermined*.gz
+    if $SMP; then
+        parallel gunzip ::: Undetermined_S0_L001_R1_001.fastq.gz Undetermined_S0_L001_R2_001.fastq.gz Undetermined_S0_L001_I1_001.fastq.gz
+    else
+        gunzip Undetermined_S0_L001_R1_001.fastq.gz Undetermined_S0_L001_R2_001.fastq.gz Undetermined_S0_L001_I1_001.fastq.gz
+    fi
     MD5R1FQ=`md5 Undetermined_S0_L001_R1_001.fastq`
     MD5R2FQ=`md5 Undetermined_S0_L001_R2_001.fastq`
     MD5INDEXFQ=`md5 Undetermined_S0_L001_I1_001.fastq`
@@ -106,8 +109,13 @@ if [ -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -f Merging.complete ] && $
     echo $MD5R1FQ | tee -a $LOG
     echo $MD5R2FQ | tee -a $LOG
     echo $MD5INDEXFQ | tee -a $LOG
-else
-    parallel gunzip ::: Undetermined_S0_L001_R1_001.fastq.gz Undetermined_S0_L001_R2_001.fastq.gz Undetermined_S0_L001_I1_001.fastq.gz
+else # Something really weird has happened if we get to this so ABORT!
+    echo '' | tee -a $LOG
+    echo 'ERROR: Something unknown happened, aborting script.' | tee -a $LOG
+    echo 'Check to make sure the Undetermined read files are present and have non-zero file sizes before continuing.' | tee -a $LOG
+    echo '' | tee -a $LOG
+    compress
+    exit 1
 fi
 
 # Merge Read 1 and Read 2
@@ -192,13 +200,13 @@ if [ -s Good_Reads.fastq ] && [ ! -s Good_Reads_filtered.fastq ]; then
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 4: Filtering reads with min length 245bp and max length 260bp." | tee -a $LOG
     Length_Filter.py Good_Reads.fastq $GOODREADS 245 260
-    if [ -s Good_Reads_filtered.fastq ]; then
+    if [ -s $GOODREADS ]; then
         touch Length_filtering.complete
     fi
 fi
 
 # Filter Index file to only contain reads in Good_Reads_filtered file
-if [ -s $GOODREADS ] && [ ! -s $GOODINDEX ]; then
+if [ -s $GOODREADS ] && [ -f Length_filtering.complete ] && [ ! -s $GOODINDEX ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 5: Filtering Index fastq files to remove sequences not found in Good_Reads_filtered.fastq." | tee -a $LOG 
