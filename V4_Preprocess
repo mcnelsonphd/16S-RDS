@@ -36,14 +36,13 @@
 #
 
 # Create a subroutine for compression of all fastq files for use on exit
-# Could probably modify to enable usage
+# Could probably modify to enable usage in more places
 compress(){
     if $SMP; then
-        gzip *.fastq
+        parallel gunzip ::: *.fastq
     else
-parallel gunzip ::: *.fastq
+        gzip *.fastq
     fi
-
 }
 
 # Useage: V4_Preprocess
@@ -79,7 +78,7 @@ else
 fi
 
 # Prior to beginning, are the require input files in the current dir?
-if [ ! -s Undetermined_S0_L001_R1_001.fastq.gz ] && [ ! -s Undetermined_S0_L001_R2_001.fastq.gz ] && [ ! -s Undetermined_S0_L001_I1_001.fastq.gz ]; then
+if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
     echo '' | tee -a $LOG
     echo 'ERROR: Required input files could not be found.' | tee -a $LOG
     echo 'Script must be executed in the directory containing the Undertermined read and index files in their original compressed form.' | tee -a $LOG 
