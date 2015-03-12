@@ -272,7 +272,9 @@ if [ -f otus_complete.txt ]  && [ ! -f step8.complete ]; then
 	echo 'Creating OTU tables from the otus_complete.txt file. Output is otu_table.biom (biom format) and otu_table.txt (text format).' | tee -a $LOG
 	make_otu_table.py -i otus_complete.txt -o raw_otu_table.biom -t RDP_classifier/Rep_Set_clean_taxonomy.txt -e bad_OTUs.txt
 	filter_otus_from_otu_table.py -i raw_otu_table.biom -o tmp1.biom -n 3
-	filter_otus_from_otu_table.py -i tmp1.biom -o otu_table.biom --min_count_fraction 0.00005
+	filter_otus_from_otu_table.py -i tmp1.biom -o tmp2.biom --min_count_fraction 0.00005
+	# Adding sample metadata to OTU table, 
+	biom add-metadata -i tmp2.biom -o otu_table.biom -m $MAPLOC
     biom summarize-table -i otu_table.biom -o otu_table_stats.txt
     biom convert -i otu_table.biom -o otu_table.txt -b --header-key taxonomy && touch step8.complete
 	## QIIME 1.7 code, deprecated in QIIME 1.8
@@ -351,8 +353,7 @@ if [ -f otu_table.biom ]  && [ ! -f step11.complete ]; then
     biom summarize-table -i even_table.biom -o even_table_stats.txt
 	## QIIME 1.7 code, deprecated in QIIME 1.8
     #print_biom_table_summary.py -i even_table.biom -o even_table_stats.txt
-
-	alpha_diversity.py -i even_table.biom -o alpha_even.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step11.complete
+    alpha_diversity.py -i even_table.biom -o alpha_even.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step11.complete
 fi
 if [ ! -f step11.complete ]; then
     DATE=`date +%Y-%m-%d`
