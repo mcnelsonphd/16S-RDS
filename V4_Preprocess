@@ -35,15 +35,20 @@
 # versions. The uncompressed md5 values should always be identical regardless of the compression method.
 #
 
-# Create a subroutine for compression of all fastq files for use on exit
-# Could probably modify to enable usage in more places
+# Hardcoded path to the phiX reference index for use by bowtie. Change this path as needed.
+PHIX=/Volumes/DATA_RAID/Reference_Files/phiX/phix
+
+# Create a subroutine for compression of fastq files in parallel or not
 compress(){
-    if $SMP; then
-        parallel gzip ::: *.fastq
-    elif $PIGGY; then
-        pigz -p 4 *.fastq
+    if [ -z "$1" ]; then
+        EXE=*.fastq
     else
-        gzip *.fastq
+        EXE=$1
+    fi
+    if $SMP; then
+        parallel gzip ::: $EXE
+    else
+        gzip $EXE
     fi
 }
 
@@ -69,15 +74,13 @@ if [ -f Pre-Processing.complete ]; then
 fi
 
 # Check to see if GNU parallel is installed.
-if [ ! type parallel 2>/dev/null ]; then
-    SMP=
-    echo '' | tee -a $LOG
-    echo 'Running in single-process mode' | tee -a $LOG
-else
+if hash parallel 2>/dev/null; then
     SMP=TRUE
-    echo '' | tee -a $LOG
     echo 'Running in multi-process mode' | tee -a $LOG
+else
+    echo 'Running in single-process mode' | tee -a $LOG
 fi
+
 
 # Prior to beginning, are the require input files in the current dir? If not throw an error, if yes then proceed with checksum calculation and decompression steps.
 if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
@@ -135,11 +138,7 @@ fi
 if [ -s Merged_Reads.fastq ] && [ -f Merging.complete ]; then
     echo '' | tee -a $LOG
     rm t1 t2
-    if $SMP; then
-        gzip *R*_001.fastq
-    else
-        parallel gunzip ::: *R*_001.fastq
-    fi
+    compress "*R1_001.fastq *R2_001.fastq"
 else
     if [ ! -f phiX_removal.complete ]; then
         echo 'Read merging failed.' | tee -a $LOG
@@ -153,7 +152,7 @@ if [ ! -s phiX.sam ] && [ -s Merged_Reads.fastq ] && [ ! -f phiX_removal.complet
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 2: Identifying phiX contamination." | tee -a $LOG
     echo ''
-    bowtie2 -x /Volumes/DATA_RAID/Reference_Files/phiX/phix -U Merged_reads.fastq -S phiX.sam -p 4
+    bowtie2 -x $PHIX -U Merged_reads.fastq -S phiX.sam -p 4
 fi
 
 # Process phiX.sam output to get unmapped reads
