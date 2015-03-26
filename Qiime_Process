@@ -276,6 +276,9 @@ if [ -f otus_complete.txt ]  && [ ! -f step8.complete ]; then
 	# Adding sample metadata to OTU table, 
 	biom add-metadata -i tmp2.biom -o otu_table.biom -m $MAPLOC
     biom summarize-table -i otu_table.biom -o otu_table_stats.txt
+    ## Qiime 1.9/biom 2.x code:
+    #biom convert -i otu_table.biom -o otu_table.txt --to-tsv --header-key taxonomy && touch step8.complete
+    ## Qiime 1.8 code, deprecated in QIIME 1.9 due to changes in base biom package.
     biom convert -i otu_table.biom -o otu_table.txt -b --header-key taxonomy && touch step8.complete
 	## QIIME 1.7 code, deprecated in QIIME 1.8
     #print_biom_table_summary.py -i otu_table.biom -o otu_table_stats.txt
@@ -351,8 +354,14 @@ if [ -f otu_table.biom ]  && [ ! -f step11.complete ]; then
 	echo "Rarefying the filtered OTU table (otu_table.biom) to the smallest sample using the sampling depth: $DEPTH" | tee -a $LOG
 	single_rarefaction.py -i otu_table.biom -o even_table.biom -d $DEPTH
     biom summarize-table -i even_table.biom -o even_table_stats.txt
+    ## QIIME 1.9/biom 2.x code
+    #biom convert -i even_table.biom -o even_table.txt --to-tsv --header-key taxonomy
+    ## QIIME 1.8/biom 1.3 code,
+    biom convert -i even_table.biom -o even_table.txt -b --header-key taxonomy
 	## QIIME 1.7 code, deprecated in QIIME 1.8
     #print_biom_table_summary.py -i even_table.biom -o even_table_stats.txt
+    summarize_taxa.py -i even_table.biom -o even_tax_summary/
+    summarize_taxa.py -i even_table.biom -o even_tax_summary/abs/ -a
     alpha_diversity.py -i even_table.biom -o alpha_even.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree && touch step11.complete
 fi
 if [ ! -f step11.complete ]; then
