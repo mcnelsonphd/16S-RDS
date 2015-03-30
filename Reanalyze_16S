@@ -11,8 +11,8 @@
 # Previous and/or future versions of QIIME are not guaranteed to work with this script.
 #
 # Created by Michael C. Nelson on 2014-01-16.
-# Last revised: 2014-05-08
-# Revision #: 3
+# Last revised: 2015-03-28
+# Revision #: 4
 # Copyright 2014 Michael C. Nelson and the University of Connecticut.
 # 
 # This script is free software: you can redistribute it and/or modify
@@ -79,7 +79,6 @@ fi
 source /macqiime/configs/bash_profile.txt
 DIR=Reanalysis_$TM_$DEPTH
 mkdir $DIR
-CPU=4
 START=`date +%s`
 echo ''
 
@@ -89,9 +88,7 @@ if [ ! -f Redo1.complete ]; then
 	echo "Step 1: $DATE $TIME" | tee -a $LOG
 	echo "Re-rarefying your OTU table ($TABLE) to the new sampling depth: $DEPTH" | tee -a $LOG
 	single_rarefaction.py -i $TABLE -o $DIR/even_table_$DEPTH.biom -d $DEPTH
-	biom summarize-table -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt
-	#print_biom_table_summary.py -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt
-	alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE && touch Redo1.complete
+	biom summarize-table -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt && touch Redo1.complete
 fi
 if [ ! -f Redo1.complete ]; then
 	echo '' | tee -a $LOG
@@ -103,11 +100,28 @@ if [ ! -f Redo1.complete ]; then
 	echo '' | tee -a $LOG
 	exit 1
 fi
+## Step 2: Perform new alpha diversity calculations and also new taxa summaries
+if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo2.complete ]; then
+    echo '' | tee -a $LOG
+    echo 'Step 2: Calculating alpha diversity metrics from the newly rarefied table and outputting absolute abundance taxa summaries.' | tee -a $LOG
+    alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE
+    summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/ -a && touch Redo2.complete
+fi
+if [ ! -f Redo2.complete ]; then
+    echo '' | tee -a $LOG
+    echo '' | tee -a $LOG
+    echo "ERROR: $DATE $TIME" | tee -a $LOG
+    echo 'An error occured while calculating alpha diversity metrics or summarizing taxonomy.' | tee -a $LOG
+    echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+    echo '' | tee -a $LOG
+    echo '' | tee -a $LOG
+    exit 1
+fi
 
 ### Step 2: Perform standard beta diversity calculations and create 3D PCoA plots
-if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo2.complete ]; then
+if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo3.complete ]; then
 	echo '' | tee -a $LOG
-	echo "Step 2: $DATE $TIME" | tee -a $LOG
+	echo "Step 3: $DATE $TIME" | tee -a $LOG
 	echo 'Computing new beta diversity statistics for the following metrics: Bray Curtis, Ochiai, weighted and unweighted UniFrac' | tee -a $LOG
 	beta_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/beta_div/ -m binary_ochiai,bray_curtis,weighted_unifrac,unweighted_unifrac -t $TREE
 	principal_coordinates.py -i $DIR/beta_div/weighted_unifrac_even_table_$DEPTH.txt -o $DIR/beta_div/weighted_unifrac_PCoA.txt
@@ -135,10 +149,11 @@ if [ ! -f Redo2.complete ]; then
 	echo '' | tee -a $LOG
 	exit 1
 else
-	rm Redo1.complete Redo2.complete
+	rm Redo1.complete Redo2.complete Redo3.complete
 	echo '' | tee -a $LOG
 	END=`date +%s`
 	RUNTIME=$(( END - START ))
+    echo 'Reanalysis has finished!' | tee -a $LOG
 	echo "This job took $RUNTIME seconds to complete" | tee -a $LOG
 fi
 
