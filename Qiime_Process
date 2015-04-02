@@ -11,8 +11,8 @@
 # Additionally, the script is currently written to utilize MacQIIME version 1.8. Previous and/or future versions of QIIME are not guaranteed to work with this script.
 #
 # Created by Michael C. Nelson on 2012-08-01.
-# Last revised: 2014-05-08
-# Revision #: 13
+# Last revised: 2015-04-01
+# Revision #: 15
 # Copyright 2014 Michael C. Nelson and the University of Connecticut. All rights reserved.
 # 
 # This script is free software: you can redistribute it and/or modify
@@ -62,8 +62,8 @@ else
 	MD5SEQS=`md5 $1`
 	MAPLOC=$2
 	MD5MAP=`md5 $2`
-	FILENAME=${INSEQS##*/}
-	BASENAME=${FILENAME%.*}
+	FILENAME=${INSEQS##*/}    # Strip the directory path of the input seqs file to give just the filename 
+	BASENAME=${FILENAME%.*}   # Strip the file extension from the input seqs file to get it's basename (This is the safer method than using basename)
 	echo '' | tee -a $LOG
 	echo "Using $INSEQS as the input sequence file." | tee -a $LOG
 	echo $MD5SEQS | tee -a $LOG
