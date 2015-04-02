@@ -40,38 +40,38 @@ echo "Executing Reanalysis on $DATE at $TIME " | tee $LOG
 # Initial sanity checking for script operation
 # Are the correct number of arguments given?
 if [ "$1" = "" ]; then
-    echo '' | tee -a $LOG
-    echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
-    echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt Rep_tree.tree 2000' | tee -a $LOG
-    echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt initial_processing/Rep_tree.tree 2000' | tee -a $LOGs
-    echo '' | tee -a $LOG
-    exit 1
+	echo '' | tee -a $LOG
+	echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
+	echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt Rep_tree.tree 2000' | tee -a $LOG
+	echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt initial_processing/Rep_tree.tree 2000' | tee -a $LOGs
+	echo '' | tee -a $LOG
+	exit 1
 fi
 
 # Can the required input files be found?
 if [ ! -f $1 ] || [ ! -f $2 ]; then
-    echo '' | tee -a $LOG
-    echo 'ERROR: Required input files could not be found.' | tee -a $LOG
-    echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
-    echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt 2000' | tee -a $LOG
-    echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt 2000' | tee -a $LOGs
-    echo '' | tee -a $LOG
-    exit 1
+	echo '' | tee -a $LOG
+	echo 'ERROR: Required input files could not be found.' | tee -a $LOG
+	echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
+	echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt 2000' | tee -a $LOG
+	echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt 2000' | tee -a $LOGs
+	echo '' | tee -a $LOG
+	exit 1
 else
-    TABLE=$1
-    MD5TABLE=`md5 $1`
-    MAPLOC=$2
-    MD5MAP=`md5 $2`
+	TABLE=$1
+	MD5TABLE=`md5 $1`
+	MAPLOC=$2
+	MD5MAP=`md5 $2`
 	TREE=$3
 	MD5TREE=`md5 $3`
-    DEPTH=$4
+	DEPTH=$4
 	echo '' | tee -a $LOG
-    echo "Using $TABLE as the input otu table." | tee -a $LOG
-    echo $MD5TABLE | tee -a $LOG
-    echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
-    echo $MD5MAP | tee -a $LOG
-    echo "Using $TREE as the input tree file." | tee -a $LOG
-    echo $TREE | tee -a $LOG
+	echo "Using $TABLE as the input otu table." | tee -a $LOG
+	echo $MD5TABLE | tee -a $LOG
+	echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
+	echo $MD5MAP | tee -a $LOG
+	echo "Using $TREE as the input tree file." | tee -a $LOG
+	echo $TREE | tee -a $LOG
 	echo "New rarefaction depth is $DEPTH. All new files/folders will state this sample depth."
 fi
 
@@ -102,20 +102,21 @@ if [ ! -f Redo1.complete ]; then
 fi
 ## Step 2: Perform new alpha diversity calculations and also new taxa summaries
 if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo2.complete ]; then
-    echo '' | tee -a $LOG
-    echo 'Step 2: Calculating alpha diversity metrics from the newly rarefied table and outputting absolute abundance taxa summaries.' | tee -a $LOG
-    alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE
-    summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/ -a && touch Redo2.complete
+	echo '' | tee -a $LOG
+	echo 'Step 2: Calculating alpha diversity metrics from the newly rarefied table and outputting absolute abundance taxa summaries.' | tee -a $LOG
+	alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE
+	summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/
+	summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/abs -a && touch Redo2.complete
 fi
 if [ ! -f Redo2.complete ]; then
-    echo '' | tee -a $LOG
-    echo '' | tee -a $LOG
-    echo "ERROR: $DATE $TIME" | tee -a $LOG
-    echo 'An error occured while calculating alpha diversity metrics or summarizing taxonomy.' | tee -a $LOG
-    echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-    echo '' | tee -a $LOG
-    echo '' | tee -a $LOG
-    exit 1
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo 'An error occured while calculating alpha diversity metrics or summarizing taxonomy.' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
+	echo '' | tee -a $LOG
+	echo '' | tee -a $LOG
+	exit 1
 fi
 
 ### Step 2: Perform standard beta diversity calculations and create 3D PCoA plots
@@ -153,7 +154,7 @@ else
 	echo '' | tee -a $LOG
 	END=`date +%s`
 	RUNTIME=$(( END - START ))
-    echo 'Reanalysis has finished!' | tee -a $LOG
+	echo 'Reanalysis has finished!' | tee -a $LOG
 	echo "This job took $RUNTIME seconds to complete" | tee -a $LOG
 fi
 
