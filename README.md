@@ -15,3 +15,12 @@ An important note is that the script will automatically normalize samples to the
 
 ###3. Reanalyze\_16S###
 __Reanalyze\_16S__ is an accessory script that may or may not be necessary for users to run. If the results of the Qiime\_Analysis script result in normalization of the samples to a value too small for the users liking, or if they wish to re-run the normalization and resulting alpha and beta diversity analyses using a different number of sequences then this script will allow them to carry this out. To reanalyze using a new number of sequences for normalization, the user needs to supply the script the path to the filtered OTU table, sample mapping file, phylogenetic tree, and the value to be used for rarefaction. The output files will be placed in a subdirectory that is dated and also includes the new rarefaction value passed to the script.
+
+###Accessory Files####
+__GreenGenes_References__ contains V4, V4V5, and V1-V3 reference datasets as gzipped tar archives. Within each archive is an un-aligned and aligned set of reference sequences as well as the taxonomy reference down to the species level.
+
+__Test_Data__ contains a very small set of raw sequences for use in testing the implementation of the V4_Preprocess script.
+
+__phiX__ contains the phiX index needed by bowtie as part of the V4_Preprocess script.
+
+__Length_Filter.py__ is a script utilizing Biopython to size filter sequences as part of V4_Preprocess.
