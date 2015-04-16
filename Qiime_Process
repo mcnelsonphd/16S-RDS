@@ -11,8 +11,8 @@
 # Additionally, the script is currently written to utilize MacQIIME version 1.8. Previous and/or future versions of QIIME are not guaranteed to work with this script.
 #
 # Created by Michael C. Nelson on 2012-08-01.
-# Last revised: 2015-04-01
-# Revision #: 15
+# Last revised: 2015-04-16
+# Revision #: 16
 # Copyright 2014 Michael C. Nelson and the University of Connecticut. All rights reserved.
 # 
 # This script is free software: you can redistribute it and/or modify
@@ -27,6 +27,88 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 
+#Set Script Name variable
+SCRIPT=`basename ${BASH_SOURCE[0]}`
+
+# Set up working environment. These values should be changed as needed depending on the system being used.
+# If this script is being used on a system where the QIIME python scripts are included in the shell's $PATH, then comment or delete the next line.
+source /macqiime/configs/bash_profile.txt
+# Set paths to the un-aligned GreenGenes reference file, aligned reference file, and taxonomy file respectively.
+GGREF=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_otus_v4.fasta
+GGREFALN=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_otus_v4_aligned.fasta
+GGTAX=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_tax.txt
+CPU=4	# Honestly, it's rarely necessary to increase this unless operating on a cluster and you want to fully utilize a compute node.
+
+if [ ! -f $GGREF ] || [ ! -f $GGREFALN ] || [ ! -f $GGTAX ]; then
+    echo \\n"ERROR: One or more of the GreenGenes reference files could not be found."\\n
+    exit 1
+fi
+
+#Help function
+HELP () {
+    echo "$SCRIPT"\\n
+    echo "Required arguments."
+    echo "-s  The path to your input sequence file (e.g. seqs.fna)."
+    echo "-m  The path to your mapping file (e.g. Map.txt)."
+    echo \\n"Optional arguments."
+    echo "-d  Sets the value for rarefaction depth. Default is value is num. of seqs in smallest sample."
+    echo "-h  Displays this help message. No further functions are performed."\\n
+    echo "Basic usage:    Qiime_Process -s seqs.fna -m Map.txt "
+    echo "Advanced usage: Qiime_Process -s split_libs/seqs.fna -m Map.txt -d 10000"
+    exit 1
+}
+
+#Check the number of arguments. If none are passed, print help and exit.
+if [ $# -eq 0 ]; then
+    echo \\n"ERROR: No arguments given."
+    HELP
+fi
+
+### Start getopts code ###
+while getopts :s:m:d:h FLAG; do
+    case $FLAG in
+        s)  # Set input sequence file path
+            INSEQS=$OPTARG
+        ;;
+        m)  # Set mapping file path
+            MAPLOC=$OPTARG
+        ;;
+        d)  # Set optional rarefaction depth
+            DEPTH=$OPTARG
+        ;;
+        h)  # Show help
+            HELP
+        ;;
+        '?') # Unrecognized option
+            echo \\n"Option -$OPTARG not recognized."\\n
+            echo "Use $SCRIPT -h to see the help documentation."\\n
+            exit 2
+        ;;
+        :)  # No argument given for an option (s,m,d)
+            echo "Option -$OPTARG requires an argument. See help (-h)."\\n
+        ;;
+    esac
+done
+
+shift $((OPTIND-1))
+### End getopts code ###
+
+# Check that the options for the input sequence and mapping files were filled and that the files exist.
+if [ ! $INSEQS ]; then
+    echo "ERROR: No input sequence file was given."\\n
+    HELP
+elif [ ! -f $INSEQS ]; then
+    echo "ERROR: Input sequence file could not be found, please check your filepath is correct."\\n
+    exit 1
+fi
+if [ ! $MAPLOC ]; then
+    echo "ERROR: No input mapping file was given."\\n
+    HELP
+elif [ ! -f $MAPLOC ]; then
+    echo "ERROR: Input mapping file could not be found, please check your filepath is correct."\\n
+    exit 1
+fi
+
 clear
 # Initialize timestamp variables
 DATE=`date +%Y-%m-%d`
@@ -35,82 +117,46 @@ TM=`date +%Y%m%d-%H%M`
 LOG=Qiime_log_$TM.txt
 #Create log file
 echo "Started executing Qiime_Process on $DATE at $TIME " | tee $LOG
-#echo "" | tee -a $LOG
-
-# Initiail sanity checking for script operation
-# Are the correct number of arguments given?
-if [ "$1" = "" ]; then
-	echo '' | tee -a $LOG
-	echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Qiime_Process seqs.fna Map.txt' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Qiime_Process split_libs/seqs.fna ../My_Mapping_File.txt' | tee -a $LOGs
-	echo '' | tee -a $LOG
-	exit 1
-fi
-
-# Can the required input files be found?
-if [ ! -f $1 ] || [ ! -f $2 ]; then
-	echo '' | tee -a $LOG
-	echo 'ERROR: Required input files could not be found.' | tee -a $LOG
-	echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Qiime_Process seqs.fna Map.txt' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Qiime_Process split_libs/seqs.fna ../My_Mapping_File.txt' | tee -a $LOG
-	echo '' | tee -a $LOG
-	exit 1
+MD5SEQS=`md5 $INSEQS`
+MD5MAP=`md5 $MAPLOC`
+FILENAME=${INSEQS##*/}    # Strip the directory path of the input seqs file to give just the filename
+BASENAME=${FILENAME%.*}   # Strip the file extension from the input seqs file to get it's basename (This is the safer method than using basename)
+echo \\n"Using $INSEQS as the input sequence file." | tee -a $LOG
+echo $MD5SEQS | tee -a $LOG
+echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
+echo $MD5MAP| tee -a $LOG
+if [ ! $DEPTH ]; then
+    echo "No minimum rarefaction depth set. Automatically using the value of lowest sample." | tee -a $LOG
+    echo "Please check your results before proceeding with downstream analyses to ensure the rarefaction level was sufficient." | tee -a $LOG
 else
-	INSEQS=$1
-	MD5SEQS=`md5 $1`
-	MAPLOC=$2
-	MD5MAP=`md5 $2`
-	FILENAME=${INSEQS##*/}    # Strip the directory path of the input seqs file to give just the filename 
-	BASENAME=${FILENAME%.*}   # Strip the file extension from the input seqs file to get it's basename (This is the safer method than using basename)
-	echo '' | tee -a $LOG
-	echo "Using $INSEQS as the input sequence file." | tee -a $LOG
-	echo $MD5SEQS | tee -a $LOG
-	echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
-	echo $MD5MAP| tee -a $LOG
+    echo "Using $DEPTH as the rarefaction depth for beta-diversity analyses." | tee -a $LOG
 fi
 
-# Set up working environment. These values should be changed as needed.
-# If this script is being used on a system where the QIIME python scripts are included in the shell's $PATH, then comment the next line.
-source /macqiime/configs/bash_profile.txt
-GGREF=/Volumes/DATA_RAID/Reference_Files/greengenes/gg_13_8/97_otus_v4.fasta
-GGREFALN=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_otus_v4_aligned.fasta
-GGTAX=/Volumes/DATA_RAID/Reference_Files/Greengenes/gg_13_8/97_tax.txt
-CPU=4	# Honestly, it's rarely necessary to increase this unless operating on a cluster and fully utilizing a compute node is desired.
 START=`date +%s`
-echo ''
 
 ### Step 1: Perform reference based OTU picking with uclust_ref
 if [ ! -f step1.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 1: $DATE $TIME" | tee -a $LOG
-	echo "Clustering the split_libraries_fastq.py output ($1) to reference the Greengenes reference OTUs (97_otus_v4.fasta) using parallel_pick_otus_usearch61_ref.py. Output is in the ref_otus folder." | tee -a $LOG
+	echo \\n"Step 1: $DATE $TIME" | tee -a $LOG
+	echo "Clustering your input file ($FILENAME) to the Greengenes reference OTUs (97_otus_v4.fasta) using parallel_pick_otus_usearch61_ref.py. Output is in the ref_otus folder." | tee -a $LOG
 	parallel_pick_otus_usearch61_ref.py -i $INSEQS -o ref_otus/ -r $GGREF -O $CPU && touch step1.complete
 	find ./ref_otus/ -name '*_clusters.uc' -exec rm -f {} \;
 fi
 if [ ! -f step1.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured trying to perform reference OTU clustering.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
-
 
 ### Step 2: Run de novo clustering on sequences that failed to cluster to a reference.
 if [ -f ref_otus/"$BASENAME"_failures.txt ] && [ ! -f step2.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 2: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 2: $DATE $TIME" | tee -a $LOG
 	echo 'Finding reads that failed to be assigned to a reference OTU. Output is in ref_failures folder.' | tee -a $LOG
 	mkdir ref_failures
 	filter_fasta.py -f $INSEQS -o ref_failures/ref_fail_seqs.fasta -s ref_otus/"$BASENAME"_failures.txt
@@ -120,13 +166,9 @@ fi
 if [ ! -f step2.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured trying to perform de novo OTU clustering.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -135,13 +177,11 @@ if [ -f ref_failures/ref_fail_seqs_otus.txt ] && [ ! -f step3.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
 	## Create the aligned reference seqs file for the reference clustered OTUs
-	echo '' | tee -a $LOG
-	echo "Step 3: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 3: $DATE $TIME" | tee -a $LOG
 	echo 'Finding reference OTU representative sequences, output is ref_otus_Rep_Set_aligned.fasta' | tee -a $LOG
 	pick_rep_set.py -i ref_otus/"$BASENAME"_otus.txt -r $GGREFALN -o ref_otus_Rep_Set_aligned.fasta
 	## Create the aligned reference seqs file for the de novo OTUs
-	echo '' | tee -a $LOG
-	echo "$DATE $TIME" | tee -a $LOG
+	echo \\n"$DATE $TIME" | tee -a $LOG
 	echo 'Picking and aligning the new OTU reference sequences. Output is ref_fail_seqs_Rep_Set_aligned.fasta in ref_failures folder.' | tee -a $LOG
 	pick_rep_set.py -i ref_failures/ref_fail_seqs_otus.txt -f ref_failures/ref_fail_seqs.fasta -o ref_failures/ref_fail_seqs_Rep_Set.fasta
 	parallel_align_seqs_pynast.py -i ref_failures/ref_fail_seqs_Rep_Set.fasta -t $GGREFALN -o ref_failures/ -e 75 -O $CPU && touch step3.complete
@@ -149,13 +189,9 @@ fi
 if [ ! -f step3.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured trying to align the ref_fail_seqs_Rep_Set.fasta file.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -163,21 +199,16 @@ fi
 if [ -f ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta ] && [ ! -f step4.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 4: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 4: $DATE $TIME" | tee -a $LOG
 	echo 'Checking the ref_fail_seqs_Rep_Set for chimeras with ChimeraSlayer' | tee -a $LOG
 	parallel_identify_chimeric_seqs.py -i ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta -a $GGREFALN -O $CPU && touch step4.complete
 fi
 if [ ! -f step4.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while performing chimera checking of the de novo OTU representative sequences.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -185,8 +216,7 @@ fi
 if [ -f ref_fail_seqs_Rep_Set_aligned_chimeric.txt ]  && [ ! -f step5.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 5: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 5: $DATE $TIME" | tee -a $LOG
 	echo 'Creating a single aligned reference set file. Output is Rep_Set.fasta.' | tee -a $LOG
 	## Cat the two *_Rep_aligned.fasta files into Rep_set.fasta in base folder
 	cat ref_otus_Rep_Set_aligned.fasta ref_failures/ref_fail_seqs_Rep_Set_aligned.fasta >Rep_Set_aligned.fasta
@@ -202,13 +232,9 @@ fi
 if [ ! -f step5.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while creating unified files of the reference and de novo OTU processes.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -216,8 +242,7 @@ fi
 if [ -f Rep_Set.fasta ] && [ ! -f step6.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 6: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 6: $DATE $TIME" | tee -a $LOG
 	echo 'Assigning taxonomy to representative sequences with RDP Classifier. Output is Rep_Set_tax_assignments.txt' | tee -a $LOG
 	parallel_assign_taxonomy_rdp.py -i Rep_Set.fasta -o RDP_classifier/ -t $GGTAX -r $GGREF -O $CPU
 	## Clean up the taxonomy file
@@ -231,13 +256,9 @@ fi
 if [ ! -f step6.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while performing taxonomy assignments with the re-trained RDP Classifier.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -245,8 +266,7 @@ fi
 if [ -f ref_fail_seqs_Rep_Set_aligned_chimeric.txt ]  && [ ! -f step7.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 7: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 7: $DATE $TIME" | tee -a $LOG
 	echo 'Filtering Rep_Set_algined.fasta to remove common gaps. Output is Rep_Set_aligned_pfiltered.fasta.' | tee -a $LOG
 	filter_alignment.py -i Rep_Set_aligned.fasta -s
 	echo 'Creating a phylogenetic tree using the Rep_Set_aligned.fasta file. Output is Rep_Set_tree.tree.' | tee -a $LOG
@@ -255,13 +275,9 @@ fi
 if [ ! -f step7.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while creating the phylogenetic tree for the Rep_Set_aligned.fasta file.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -269,8 +285,7 @@ fi
 if [ -f otus_complete.txt ]  && [ ! -f step8.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 8: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 8: $DATE $TIME" | tee -a $LOG
 	echo 'Creating OTU tables from the otus_complete.txt file. Output is otu_table.biom (biom format) and otu_table.txt (text format).' | tee -a $LOG
 	make_otu_table.py -i otus_complete.txt -o raw_otu_table.biom -t RDP_classifier/Rep_Set_clean_taxonomy.txt -e bad_OTUs.txt
 	filter_otus_from_otu_table.py -i raw_otu_table.biom -o tmp1.biom -n 3
@@ -289,13 +304,9 @@ fi
 if [ ! -f step8.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while creating the OTU tables.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -303,8 +314,7 @@ fi
 if [ -f otu_table.biom ]  && [ ! -f step9.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 9: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 9: $DATE $TIME" | tee -a $LOG
 	echo 'Summarizing taxa distribution at all taxonomic levels. Output is in taxa_summary folder.'
 	summarize_taxa.py -i otu_table.biom -o taxa_summary/
 	summarize_taxa.py -i otu_table.biom -o taxa_summary/abs/ -a && touch step9.complete
@@ -312,13 +322,9 @@ fi
 if [ ! -f step9.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while creating the taxonomy summaries.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -326,8 +332,7 @@ fi
 if [ -f otu_table.biom ]  && [ ! -f step10.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 10: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 10: $DATE $TIME" | tee -a $LOG
 	echo "Calculating the alpha diversity metrics Observed, Singletons, Doubletons, Simpson (D), Shannon (H'), and phylogenetic distance (PD)." | tee -a $LOG
 	echo "Output is alpha_raw.txt for the unfiltered OTU table and alpha_div.txt for the filtered OTU table." | tee -a $LOG
 	alpha_diversity.py -i raw_otu_table.biom -o alpha_raw.txt -m osd,simpson,shannon,PD_whole_tree -t Rep_Set_tree.tree
@@ -336,13 +341,9 @@ fi
 if [ ! -f step10.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while calculating alpha diversity metrics.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo ''
-	echo ''
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -350,9 +351,10 @@ fi
 if [ -f otu_table.biom ]  && [ ! -f step11.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 11: $DATE $TIME" | tee -a $LOG
-	DEPTH=`grep 'Min:' otu_table_stats.txt | sed 's/ Min: //' | sed 's/\.0//'`
+	echo \\n"Step 11: $DATE $TIME" | tee -a $LOG
+    if [ ! $DEPTH ]; then
+        DEPTH=`grep 'Min:' otu_table_stats.txt | sed 's/ Min: //' | sed 's/\.0//'`
+    fi
 	echo "Rarefying the filtered OTU table (otu_table.biom) to the smallest sample using the sampling depth: $DEPTH" | tee -a $LOG
 	single_rarefaction.py -i otu_table.biom -o even_table.biom -d $DEPTH
 	biom summarize-table -i even_table.biom -o even_table_stats.txt
@@ -369,13 +371,9 @@ fi
 if [ ! -f step11.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while rarefying the OTU table.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
@@ -383,16 +381,14 @@ fi
 if [ -f even_table.biom ]  && [ ! -f step12.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo "Step 12: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 12: $DATE $TIME" | tee -a $LOG
 	echo 'Computing beta diversity statistics for the following metrics: Bray Curtis, Ochiai, weighted and unweighted UniFrac' | tee -a $LOG
 	beta_diversity.py -i even_table.biom -o beta_div/ -m binary_ochiai,bray_curtis,weighted_unifrac,unweighted_unifrac -t Rep_Set_tree.tree
 	principal_coordinates.py -i beta_div/weighted_unifrac_even_table.txt -o beta_div/weighted_unifrac_PCoA.txt
 	principal_coordinates.py -i beta_div/unweighted_unifrac_even_table.txt -o beta_div/unweighted_unifrac_PCoA.txt
 	principal_coordinates.py -i beta_div/bray_curtis_even_table.txt -o beta_div/bray_curtis_PCoA.txt
 	principal_coordinates.py -i beta_div/binary_ochiai_even_table.txt -o beta_div/ochiai_PCoA.txt 
-	echo '' | tee -a $LOG
-	echo "$DATE $TIME" | tee -a $LOG
+	echo \\n"$DATE $TIME" | tee -a $LOG
 	echo 'Making 3D PCoA plots, output is in the beta_div/3D_plots directory' | tee -a $LOG
 	make_3d_plots.py -i beta_div/weighted_unifrac_PCoA.txt -o beta_div/weighted_unifrac/ -m $MAPLOC
 	make_3d_plots.py -i beta_div/unweighted_unifrac_PCoA.txt -o beta_div/unweighted_unifrac/ -m $MAPLOC 
@@ -405,18 +401,13 @@ fi
 if [ ! -f step12.complete ]; then
 	DATE=`date +%Y-%m-%d`
 	TIME=`date +%H:%M:%S`
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while performing beta diversity analyses.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
-echo '' | tee -a $LOG
-echo 'Qiime analysis completed successfully' | tee -a $LOG
+echo \\n'Qiime analysis completed successfully' | tee -a $LOG
 END=`date +%s`
 RUNTIME=$(( END - START ))
 echo "This job took $RUNTIME seconds to complete" | tee -a $LOG

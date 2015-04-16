@@ -11,10 +11,10 @@
 # Previous and/or future versions of QIIME are not guaranteed to work with this script.
 #
 # Created by Michael C. Nelson on 2014-01-16.
-# Last revised: 2015-03-28
-# Revision #: 4
-# Copyright 2014 Michael C. Nelson and the University of Connecticut.
-# 
+# Last revised: 2015-04-16
+# Revision #: 5
+# Copyright 2015 Michael C. Nelson and the University of Connecticut. All rights reserved.
+#
 # This script is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -27,6 +27,91 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 
+#Set Script Name variable
+SCRIPT=`basename ${BASH_SOURCE[0]}`
+
+# Set up working environment. These values should be changed as needed depending on the system being used.
+# If this script is being used on a system where the QIIME python scripts are included in the shell's $PATH, then comment or delete the next line.
+source /macqiime/configs/bash_profile.txt
+
+#Help function
+function HELP {
+    echo "$SCRIPT"
+    echo "Required arguments."
+    echo "-o  The path to your input OTU table file (e.g. otu_table.biom)."
+    echo "-m  The path to your mapping file (e.g. Map.txt)."
+    echo "-t  The path to your phylogenetic tree (e.g. Rep_Set_tree.tree)."
+    echo "-d  Sets the value for rarefaction depth."
+    echo \\n"Optional arguments."
+    echo "-h  Displays this help message. No further functions are performed."\\n
+    echo "Example usage:    $SCRIPT -o otu_table.buom -m Map.txt -t Rep_Set_tree.tree -d 10000"\\n
+    exit 1
+}
+
+#Check the number of arguments. If none are passed, print help and exit.
+if [ $# -eq 0 ]; then
+    echo \\n"ERROR: No arguments given."
+    HELP
+fi
+
+### Start getopts code ###
+while getopts :o:m:t:d:h FLAG; do
+    case $FLAG in
+        o)  # Set input sequence file path
+            TABLE=$OPTARG
+        ;;
+        m)  # Set mapping file path
+            MAPLOC=$OPTARG
+        ;;
+        t)  # Set the path to the tree tile
+            TREE=$OPTARG
+        ;;
+        d)  # Set optional rarefaction depth
+            DEPTH=$OPTARG
+        ;;
+        h)  # Show help
+            HELP
+        ;;
+        '?') # Unrecognized option
+            echo \\n"ERROR: Option -$OPTARG not recognized."\\n
+            echo "Use $SCRIPT -h to see the help documentation."\\n
+            exit 2
+        ;;
+        :)  # No argument given for an option (s,m,d)
+            echo "Option -$OPTARG requires an argument. See help (-h)."\\n
+        ;;
+    esac
+done
+shift $((OPTIND-1))
+### End getopts code ###
+
+# Check that the required options are given and that the files exist.
+if [ ! $TABLE ]; then
+    echo "ERROR: No input OTU table file was given."\\n
+    HELP
+elif [ ! -f $TABLE ]; then
+    echo "ERROR: Input OTU table could not be found, please check that your filepath is correct."\\n
+    exit 1
+fi
+if [ ! $MAPLOC ]; then
+    echo "ERROR: No input mapping file was given."\\n
+    HELP
+elif [ ! -f $MAPLOC ]; then
+    echo "ERROR: Input mapping file could not be found, please check that your filepath is correct."\\n
+    exit 1
+fi
+if [ ! $TREE ]; then
+    echo "ERROR: No input mapping file was given."\\n
+    HELP
+elif [ ! -f $TREE ]; then
+    echo "ERROR: Input tree file could not be found, please check that your filepath is correct."\\n
+    exit 1
+fi
+if [ ! $DEPTH ]; then
+    echo "ERROR: New sampling depth was not provided."\\n
+    HELP
+fi
+
 clear
 # Initialize timestamp variables
 DATE=`date +%Y-%m-%d`
@@ -34,103 +119,62 @@ TIME=`date +%H:%M:%S`
 TM=`date +%Y%m%d-%H%M`
 LOG=Reanalysis_log_$TM.txt
 #Create log file
-echo "Executing Reanalysis on $DATE at $TIME " | tee $LOG
-#echo "" | tee -a $LOG
+echo "Executing Reanalysis on $DATE at $TIME "\\n | tee $LOG
 
-# Initial sanity checking for script operation
-# Are the correct number of arguments given?
-if [ "$1" = "" ]; then
-	echo '' | tee -a $LOG
-	echo 'ERROR: No arguments were passed to script.' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt Rep_tree.tree 2000' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt initial_processing/Rep_tree.tree 2000' | tee -a $LOGs
-	echo '' | tee -a $LOG
-	exit 1
-fi
-
-# Can the required input files be found?
-if [ ! -f $1 ] || [ ! -f $2 ]; then
-	echo '' | tee -a $LOG
-	echo 'ERROR: Required input files could not be found.' | tee -a $LOG
-	echo 'Script must be executed in the same directory containing the input sequence and map files, or correct paths must be supplied.' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Reanalyze_16S otu_table.biom Map.txt 2000' | tee -a $LOG
-	echo 'EXAMPLE USAGE: Reanalyze_16S initial_processing/otu_table.biom ../My_Mapping_File.txt 2000' | tee -a $LOGs
-	echo '' | tee -a $LOG
-	exit 1
-else
-	TABLE=$1
-	MD5TABLE=`md5 $1`
-	MAPLOC=$2
-	MD5MAP=`md5 $2`
-	TREE=$3
-	MD5TREE=`md5 $3`
-	DEPTH=$4
-	echo '' | tee -a $LOG
-	echo "Using $TABLE as the input otu table." | tee -a $LOG
-	echo $MD5TABLE | tee -a $LOG
-	echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
-	echo $MD5MAP | tee -a $LOG
-	echo "Using $TREE as the input tree file." | tee -a $LOG
-	echo $TREE | tee -a $LOG
-	echo "New rarefaction depth is $DEPTH. All new files/folders will state this sample depth."
-fi
+MD5TABLE=`md5 $TABLE`
+MD5MAP=`md5 $MAPLOC`
+MD5TREE=`md5 $TREE`
+echo "Using $TABLE as the input otu table." | tee -a $LOG
+echo $MD5TABLE | tee -a $LOG
+echo "Using $MAPLOC as the input sample mapping file." | tee -a $LOG
+echo $MD5MAP | tee -a $LOG
+echo "Using $TREE as the input tree file." | tee -a $LOG
+echo $MD5TREE | tee -a $LOG
+echo "New rarefaction depth is $DEPTH. All new files/folders will state this sample depth." | tee -a $LOG
 
 # Set up working environment
 source /macqiime/configs/bash_profile.txt
 DIR=Reanalysis_$TM_$DEPTH
 mkdir $DIR
 START=`date +%s`
-echo ''
 
 ### Step 1: Perform new rarefaction of OTU table to new sample depth
 if [ ! -f Redo1.complete ]; then
-	echo '' | tee -a $LOG
-	echo "Step 1: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 1: $DATE $TIME" | tee -a $LOG
 	echo "Re-rarefying your OTU table ($TABLE) to the new sampling depth: $DEPTH" | tee -a $LOG
 	single_rarefaction.py -i $TABLE -o $DIR/even_table_$DEPTH.biom -d $DEPTH
 	biom summarize-table -i $DIR/even_table_$DEPTH.biom -o $DIR/even_table_stats_$DEPTH.txt && touch Redo1.complete
 fi
 if [ ! -f Redo1.complete ]; then
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while rarefying the OTU table.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 ## Step 2: Perform new alpha diversity calculations and also new taxa summaries
 if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo2.complete ]; then
-	echo '' | tee -a $LOG
-	echo 'Step 2: Calculating alpha diversity metrics from the newly rarefied table and outputting absolute abundance taxa summaries.' | tee -a $LOG
+	echo \\n'Step 2: Calculating alpha diversity metrics from the newly rarefied table and outputting absolute abundance taxa summaries.' | tee -a $LOG
 	alpha_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/alpha_even_$DEPTH.txt -m osd,simpson,shannon,PD_whole_tree -t $TREE
 	summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/
 	summarize_taxa.py -i $DIR/even_table_$DEPTH.biom -o $DIR/tax_summary_$DEPTH/abs -a && touch Redo2.complete
 fi
 if [ ! -f Redo2.complete ]; then
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while calculating alpha diversity metrics or summarizing taxonomy.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 fi
 
 ### Step 2: Perform standard beta diversity calculations and create 3D PCoA plots
 if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo3.complete ]; then
-	echo '' | tee -a $LOG
-	echo "Step 3: $DATE $TIME" | tee -a $LOG
+	echo \\n"Step 3: $DATE $TIME" | tee -a $LOG
 	echo 'Computing new beta diversity statistics for the following metrics: Bray Curtis, Ochiai, weighted and unweighted UniFrac' | tee -a $LOG
 	beta_diversity.py -i $DIR/even_table_$DEPTH.biom -o $DIR/beta_div/ -m binary_ochiai,bray_curtis,weighted_unifrac,unweighted_unifrac -t $TREE
 	principal_coordinates.py -i $DIR/beta_div/weighted_unifrac_even_table_$DEPTH.txt -o $DIR/beta_div/weighted_unifrac_PCoA.txt
 	principal_coordinates.py -i $DIR/beta_div/unweighted_unifrac_even_table_$DEPTH.txt -o $DIR/beta_div/unweighted_unifrac_PCoA.txt
 	principal_coordinates.py -i $DIR/beta_div/bray_curtis_even_table_$DEPTH.txt -o $DIR/beta_div/bray_curtis_PCoA.txt
 	principal_coordinates.py -i $DIR/beta_div/binary_ochiai_even_table_$DEPTH.txt -o $DIR/beta_div/ochiai_PCoA.txt 
-	echo '' | tee -a $LOG
-	echo "$DATE $TIME" | tee -a $LOG
+	echo \\n"$DATE $TIME" | tee -a $LOG
 	echo 'Making 3D PCoA plots, output is in the $DIR/beta_div/3D_plots directory' | tee -a $LOG
 	make_3d_plots.py -i $DIR/beta_div/weighted_unifrac_PCoA.txt -o $DIR/beta_div/weighted_unifrac/ -m $MAPLOC
 	make_3d_plots.py -i $DIR/beta_div/unweighted_unifrac_PCoA.txt -o $DIR/beta_div/unweighted_unifrac/ -m $MAPLOC 
@@ -141,20 +185,15 @@ if [ -f $DIR/even_table_$DEPTH.biom ] && [ ! -f Redo3.complete ]; then
 	rm -r $DIR/beta_div/Bray-Curtis/ $DIR/beta_div/Ochiai/ $DIR/beta_div/unweighted_unifrac/ $DIR/beta_div/weighted_unifrac/ && touch Redo2.complete
 fi
 if [ ! -f Redo2.complete ]; then
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo "ERROR: $DATE $TIME" | tee -a $LOG
+	echo \\n\\n"ERROR: $DATE $TIME" | tee -a $LOG
 	echo 'An error occured while performing beta diversity analyses.' | tee -a $LOG
-	echo 'Please consult the error message(s) displayed in the terminal window.' | tee -a $LOG
-	echo '' | tee -a $LOG
-	echo '' | tee -a $LOG
+	echo 'Please consult the error message(s) displayed in the terminal window.'\\n\\n | tee -a $LOG
 	exit 1
 else
 	rm Redo1.complete Redo2.complete Redo3.complete
-	echo '' | tee -a $LOG
 	END=`date +%s`
 	RUNTIME=$(( END - START ))
-	echo 'Reanalysis has finished!' | tee -a $LOG
+	echo \\n'Reanalysis has finished!' | tee -a $LOG
 	echo "This job took $RUNTIME seconds to complete" | tee -a $LOG
 fi
 
