@@ -63,6 +63,8 @@ TM=`date +%Y%m%d-%H%M%S`
 LOG=V4_Pre-Process_Log_$TM.txt
 # Create log file
 echo "Executing V4_Preprocess.sh on $DATE at $TIME " | tee $LOG
+# Find the systerm serial number for use as grep pattern
+PATTERN=`gzcat Undetermined_S0_L001_R1_001.fastq.gz | head -n 1 | tr -d '@' | cut -d: -f1,1`
 
 # Check to see if script has successfully executed already
 if [ -f Pre-Processing.complete ]; then
@@ -210,15 +212,15 @@ if [ -s $GOODREADS ] && [ -f Length_filtering.complete ] && [ ! -s $GOODINDEX ];
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 5: Filtering Index fastq files to remove sequences not found in Good_Reads_filtered.fastq." | tee -a $LOG 
     echo '' | tee -a $LOG
-    grep '@M00704' $GOODREADS |tr -d '@' |cut -d\  -f1 >keep.txt
+    grep $PATTERN $GOODREADS |tr -d '@' |cut -d\  -f1 >keep.txt
     source /macqiime/configs/bash_profile.txt
     filter_fasta.py -f Undetermined_S0_L001_I1_001.fastq -o $GOODINDEX -s keep.txt
     echo "Displaying number of reads in original and filtered files." | tee -a $LOG
-    COUNT=`grep -c '@M00704' Undetermined_S0_L001_I1_001.fastq`
+    COUNT=`grep -c $PATTERN Undetermined_S0_L001_I1_001.fastq`
     echo "No. reads in initial index file: $COUNT " | tee -a $LOG
-    COUNT=`grep -c '@M00704' $GOODREADS`
+    COUNT=`grep -c $PATTERN $GOODREADS`
     echo "No. reads in Good_Reads_filtered: $COUNT "  | tee -a $LOG
-    COUNT=`grep -c '@M00704' $GOODINDEX`
+    COUNT=`grep -c $PATTERN $GOODINDEX`
     echo "No. reads in Good_Index_filtered: $COUNT "| tee -a $LOG
 else
     echo 'Length filtering failed' | tee -a $LOG
