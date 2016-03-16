@@ -5,7 +5,7 @@
 #
 # Created by Michael C. Nelson on 2013-06-01.
 # Last revised: 2015-11-17
-# Revision #: 5.2
+# Revision #: 5.3
 # Copyright 2014 Michael C. Nelson and the University of Connecticut.
 # 
 # This script is free software: you can redistribute it and/or modify
@@ -196,7 +196,7 @@ GOODREADS=Good_Reads_filtered_$TM.fastq
 GOODINDEX=Good_Index_filtered_$TM.fastq
 
 # Perform length filtering with standard V4 cutoff values
-if [ -s Good_Reads.fastq ] && [ ! -s Good_Reads_filtered.fastq ]; then
+if [ -s Good_Reads.fastq ] && [ ! -s $GOODREADS ]; then
     echo '' | tee -a $LOG
     date +%Y-%m-%d_%H:%M:%S | tee -a $LOG
     echo "Step 4: Filtering reads with min length 245bp and max length 260bp." | tee -a $LOG
