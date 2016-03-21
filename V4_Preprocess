@@ -84,7 +84,7 @@ else
 fi
 
 
-# Prior to beginning, are the require input files in the current dir? If not throw an error, if yes then proceed with checksum calculation and decompression steps.
+# Prior to beginning, are the required input files in the current dir? If not throw an error, if yes then proceed with checksum calculation and decompression steps.
 if [ ! -f Undetermined_S0_L001_R1_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_R2_001.fastq.gz ] || [ ! -f Undetermined_S0_L001_I1_001.fastq.gz ]; then
     echo '' | tee -a $LOG
     echo 'ERROR: Required input files could not be found.' | tee -a $LOG

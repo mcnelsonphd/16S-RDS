@@ -86,6 +86,7 @@ while getopts :s:m:d:h FLAG; do
         ;;
         :)  # No argument given for an option (s,m,d)
             echo "Option -$OPTARG requires an argument. See help (-h)."\\n
+            exit 1
         ;;
     esac
 done
